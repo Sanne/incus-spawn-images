@@ -17,7 +17,7 @@ dnf --use-host-config \
     --setopt=keepcache=False \
     --exclude='kernel*' \
     -y install \
-    systemd systemd-resolved dhcpcd passwd \
+    systemd dhcpcd passwd \
     sudo bash coreutils util-linux dnf5 \
     glibc-langpack-en bash-completion \
     git curl which procps-ng findutils \
@@ -58,17 +58,10 @@ chroot "${ROOTFS}" systemctl mask \
     fstrim.timer \
     selinux-autorelabel-mark.service
 
-# Disable and mask systemd-resolved (incus-spawn uses gateway dnsmasq instead)
-echo "Disabling systemd-resolved..."
-chroot "${ROOTFS}" systemctl disable systemd-resolved 2>/dev/null || true
-chroot "${ROOTFS}" systemctl mask systemd-resolved
-# Remove the dangling resolv.conf symlink that resolved's package creates
-# (points to /run/systemd/resolve/stub-resolv.conf which won't exist).
-# Incus / BuildCommand will write a real resolv.conf at container start.
-rm -f "${ROOTFS}/etc/resolv.conf"
-
-# Patch nsswitch.conf so .local domains use dnsmasq, not mDNS
+# Patch nsswitch.conf: remove mDNS resolve entry so .local domains use dnsmasq.
+# Also ensure no dangling resolv.conf (BuildCommand writes the real one at container start).
 sed -i 's/resolve \[!UNAVAIL=return\] //' "${ROOTFS}/etc/nsswitch.conf"
+rm -f "${ROOTFS}/etc/resolv.conf"
 
 # Enable DHCP on eth0 via dhcpcd (must specify interface to bypass udev)
 echo "Enabling dhcpcd for eth0..."
