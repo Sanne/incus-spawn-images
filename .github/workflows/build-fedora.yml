@@ -1,0 +1,101 @@
+name: Build Fedora Base Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version suffix (e.g. v2)'
+        required: false
+        default: ''
+  schedule:
+    # Monthly rebuild for security updates (15th at 03:17 UTC)
+    - cron: '17 3 15 * *'
+  push:
+    branches: [main]
+    paths:
+      - 'fedora/**'
+      - '.github/workflows/build-fedora.yml'
+
+env:
+  RELEASE: '44'
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: |
+          mkdir -p output
+          docker run --rm --privileged \
+            -v "${{ github.workspace }}:/build:ro" \
+            -v "${{ github.workspace }}/output:/output" \
+            -e OUTPUT_DIR=/output \
+            fedora:${{ env.RELEASE }} \
+            bash /build/fedora/build.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-${{ env.RELEASE }}-${{ matrix.arch }}
+          path: |
+            output/fedora-${{ env.RELEASE }}-${{ matrix.arch }}.tar.xz
+            output/fedora-${{ env.RELEASE }}-${{ matrix.arch }}.tar.xz.sha256
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release
+          cp artifacts/fedora-${{ env.RELEASE }}-x86_64/* release/
+          cp artifacts/fedora-${{ env.RELEASE }}-aarch64/* release/
+
+          # Create combined SHA256SUMS
+          cd release
+          for f in *.sha256; do
+            basename="${f%.sha256}"
+            echo "$(cat "$f")  ${basename}" >> SHA256SUMS
+          done
+          cat SHA256SUMS
+
+      - name: Determine version tag
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "tag=fedora-${{ env.RELEASE }}-${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=fedora-${{ env.RELEASE }}-$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Fedora ${{ env.RELEASE }} Base Image (${{ steps.version.outputs.tag }})
+          body: |
+            Fedora ${{ env.RELEASE }} base image for incus-spawn.
+
+            Pre-baked with: agentuser, base packages, systemd service masks, resolved disabled.
+
+            **Usage:** Update `image_url` and `image_sha256` in `incus-spawn`'s `minimal.yaml` to point to these assets.
+          files: |
+            release/fedora-${{ env.RELEASE }}-x86_64.tar.xz
+            release/fedora-${{ env.RELEASE }}-aarch64.tar.xz
+            release/SHA256SUMS
