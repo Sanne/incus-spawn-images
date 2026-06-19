@@ -18,7 +18,7 @@ dnf --use-host-config \
     --setopt=tsflags=nodocs \
     --exclude='kernel*' \
     -y install \
-    systemd dhcpcd passwd \
+    systemd systemd-udevd dhcpcd passwd \
     sudo bash coreutils util-linux dnf5 \
     glibc-langpack-en bash-completion \
     git curl which procps-ng findutils \
