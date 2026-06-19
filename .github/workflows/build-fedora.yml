@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version suffix (e.g. v2)'
+        description: 'Release tag (e.g. fedora-44-v2)'
         required: false
         default: ''
   schedule:
@@ -79,7 +79,7 @@ jobs:
         id: version
         run: |
           if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "tag=fedora-${{ env.RELEASE }}-${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+            echo "tag=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
           else
             echo "tag=fedora-${{ env.RELEASE }}-$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
           fi
