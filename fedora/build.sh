@@ -15,6 +15,7 @@ dnf --use-host-config \
     --releasever="${RELEASE}" \
     --setopt=install_weak_deps=False \
     --setopt=keepcache=False \
+    --exclude='kernel*' \
     -y install \
     systemd systemd-resolved passwd \
     sudo bash coreutils util-linux dnf5 \
