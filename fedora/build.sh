@@ -10,7 +10,8 @@ echo "=== Building Fedora ${RELEASE} base image for ${ARCH} ==="
 
 # Bootstrap a complete systemd-based Fedora rootfs
 echo "Bootstrapping rootfs..."
-dnf --installroot="${ROOTFS}" \
+dnf --use-host-config \
+    --installroot="${ROOTFS}" \
     --releasever="${RELEASE}" \
     --setopt=install_weak_deps=False \
     --setopt=keepcache=False \
@@ -23,7 +24,7 @@ dnf --installroot="${ROOTFS}" \
 
 # Remove bloat packages that ship in the base but aren't needed
 echo "Removing unnecessary packages..."
-dnf --installroot="${ROOTFS}" -y remove \
+dnf --use-host-config --installroot="${ROOTFS}" -y remove \
     glibc-all-langpacks geolite2-city geolite2-country 2>/dev/null || true
 
 # Create agentuser (UID 1000) with passwordless sudo
@@ -81,7 +82,7 @@ chroot "${ROOTFS}" chown agentuser:agentuser /home/agentuser/.bashrc
 
 # Clean all caches to minimize image size
 echo "Cleaning caches..."
-dnf --installroot="${ROOTFS}" clean all
+dnf --use-host-config --installroot="${ROOTFS}" clean all
 rm -rf "${ROOTFS}/var/cache/libdnf5" "${ROOTFS}/tmp"/* "${ROOTFS}/var/tmp"/*
 rm -rf "${ROOTFS}/var/log"/*
 
