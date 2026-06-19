@@ -35,7 +35,7 @@ jobs:
       - name: Build image
         run: |
           mkdir -p output
-          docker run --rm --privileged \
+          podman run --rm --privileged \
             -v "${{ github.workspace }}:/build:ro" \
             -v "${{ github.workspace }}/output:/output" \
             -e OUTPUT_DIR=/output \

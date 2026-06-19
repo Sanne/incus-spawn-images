@@ -18,7 +18,7 @@ These images are pre-baked with the static setup that `incus-spawn` normally per
 
 ```bash
 # Build for current architecture
-docker run --rm --privileged \
+podman run --rm --privileged \
   -v "$(pwd):/build:ro" \
   -v "$(pwd)/output:/output" \
   -e OUTPUT_DIR=/output \
