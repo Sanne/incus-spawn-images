@@ -99,13 +99,17 @@ properties:
   variant: incus-spawn-base
 EOF
 
-# Package as unified tarball (metadata.yaml + rootfs tree)
+# Incus expects container rootfs under a rootfs/ subdirectory
+echo "Preparing rootfs layout..."
+mkdir -p /tmp/image-root/rootfs
+cp /tmp/metadata.yaml /tmp/image-root/
+cp -a "${ROOTFS}/." /tmp/image-root/rootfs/
+
+# Package as unified tarball (metadata.yaml + rootfs/ tree)
 echo "Packaging image..."
 mkdir -p "${OUTPUT}"
 TARBALL="${OUTPUT}/fedora-${RELEASE}-${ARCH}.tar.xz"
-tar -cJf "${TARBALL}" \
-    -C /tmp metadata.yaml \
-    -C "${ROOTFS}" .
+tar -cJf "${TARBALL}" -C /tmp/image-root .
 
 # Compute and save SHA256
 sha256sum "${TARBALL}" | awk '{print $1}' > "${TARBALL}.sha256"
