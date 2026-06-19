@@ -17,7 +17,7 @@ dnf --use-host-config \
     --setopt=keepcache=False \
     --exclude='kernel*' \
     -y install \
-    systemd systemd-resolved passwd \
+    systemd systemd-resolved dhcpcd passwd \
     sudo bash coreutils util-linux dnf5 \
     glibc-langpack-en bash-completion \
     git curl which procps-ng findutils \
@@ -38,12 +38,6 @@ echo 'agentuser ALL=(ALL) NOPASSWD: ALL' > "${ROOTFS}/etc/sudoers.d/agentuser"
 # Mask systemd services that are unnecessary or harmful in containers
 echo "Masking systemd services..."
 chroot "${ROOTFS}" systemctl mask \
-    systemd-udevd.service \
-    systemd-udevd-control.socket \
-    systemd-udevd-kernel.socket \
-    systemd-udev-trigger.service \
-    systemd-udev-settle.service \
-    systemd-udev-load-credentials.service \
     systemd-homed.service \
     systemd-pcrlock-file-system.service \
     systemd-pcrlock-firmware-code.service \
@@ -75,6 +69,26 @@ rm -f "${ROOTFS}/etc/resolv.conf"
 
 # Patch nsswitch.conf so .local domains use dnsmasq, not mDNS
 sed -i 's/resolve \[!UNAVAIL=return\] //' "${ROOTFS}/etc/nsswitch.conf"
+
+# Enable DHCP on eth0 via dhcpcd (must specify interface to bypass udev)
+echo "Enabling dhcpcd for eth0..."
+mkdir -p "${ROOTFS}/etc/systemd/system"
+cat > "${ROOTFS}/etc/systemd/system/dhcpcd-eth0.service" << 'SVCEOF'
+[Unit]
+Description=DHCP client for eth0
+After=network.target
+Wants=network.target
+
+[Service]
+ExecStart=/usr/sbin/dhcpcd -4 -q eth0
+ExecStop=/usr/sbin/dhcpcd -x eth0
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+chroot "${ROOTFS}" systemctl enable dhcpcd-eth0
 
 # Configure bash prompt (ISX window title) and bash-completion
 cat >> "${ROOTFS}/home/agentuser/.bashrc" << 'BASHEOF'
