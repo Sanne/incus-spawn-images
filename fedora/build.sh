@@ -15,6 +15,7 @@ dnf --use-host-config \
     --releasever="${RELEASE}" \
     --setopt=install_weak_deps=False \
     --setopt=keepcache=False \
+    --setopt=tsflags=nodocs \
     --exclude='kernel*' \
     -y install \
     systemd dhcpcd passwd \
@@ -91,6 +92,11 @@ if [ -f /usr/share/bash-completion/bash_completion ]; then
 fi
 BASHEOF
 chroot "${ROOTFS}" chown agentuser:agentuser /home/agentuser/.bashrc
+
+# Strip non-essential files to minimize image size
+echo "Stripping non-essential files..."
+rm -rf "${ROOTFS}/usr/share/doc"/* "${ROOTFS}/usr/share/man"/* "${ROOTFS}/usr/share/info"/*
+rm -rf "${ROOTFS}/usr/share/licenses" "${ROOTFS}/usr/share/groff"
 
 # Clean all caches to minimize image size
 echo "Cleaning caches..."
