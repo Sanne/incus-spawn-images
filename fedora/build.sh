@@ -68,6 +68,10 @@ chroot "${ROOTFS}" systemctl mask \
 echo "Disabling systemd-resolved..."
 chroot "${ROOTFS}" systemctl disable systemd-resolved 2>/dev/null || true
 chroot "${ROOTFS}" systemctl mask systemd-resolved
+# Remove the dangling resolv.conf symlink that resolved's package creates
+# (points to /run/systemd/resolve/stub-resolv.conf which won't exist).
+# Incus / BuildCommand will write a real resolv.conf at container start.
+rm -f "${ROOTFS}/etc/resolv.conf"
 
 # Patch nsswitch.conf so .local domains use dnsmasq, not mDNS
 sed -i 's/resolve \[!UNAVAIL=return\] //' "${ROOTFS}/etc/nsswitch.conf"
