@@ -75,12 +75,16 @@ printf '# Container override: skip static device node permissions.\n# Host-injec
 sed -i 's/resolve \[!UNAVAIL=return\] //' "${ROOTFS}/etc/nsswitch.conf"
 rm -f "${ROOTFS}/etc/resolv.conf"
 
-# Configure dhcpcd: don't overwrite resolv.conf — BuildCommand writes it at
-# build time pointing at the gateway dnsmasq, and it must be correct from the
-# moment a branched instance boots (before dhcpcd gets a lease).
-# Append to the default config so we keep duid, persistent, option requests, etc.
-grep -q 'nohook resolv.conf' "${ROOTFS}/etc/dhcpcd.conf" 2>/dev/null || \
-  echo "nohook resolv.conf" >> "${ROOTFS}/etc/dhcpcd.conf"
+# Configure dhcpcd for container use. Append to the default config so we keep
+# duid, persistent, option requests, etc.
+# - nohook resolv.conf: don't overwrite resolv.conf — BuildCommand writes it
+#   pointing at the gateway dnsmasq, and it must survive reboots.
+# - noarp: skip ARP conflict detection (~2s delay) — Incus manages all IPs.
+# - nodev: skip udev plugin init — the interface is a fixed veth.
+for opt in "nohook resolv.conf" "noarp" "nodev"; do
+  grep -q "^${opt}$" "${ROOTFS}/etc/dhcpcd.conf" 2>/dev/null || \
+    echo "${opt}" >> "${ROOTFS}/etc/dhcpcd.conf"
+done
 
 # Enable DHCP on eth0 via dhcpcd (must specify interface to bypass udev)
 echo "Enabling dhcpcd for eth0..."
@@ -95,7 +99,7 @@ Wants=network.target
 ExecStart=/usr/sbin/dhcpcd -4 -q eth0
 ExecStop=/usr/sbin/dhcpcd -x eth0
 Restart=on-failure
-RestartSec=5
+RestartSec=1
 
 [Install]
 WantedBy=multi-user.target
