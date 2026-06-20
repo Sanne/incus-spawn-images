@@ -108,9 +108,11 @@ fi
 BASHEOF
 chroot "${ROOTFS}" chown agentuser:agentuser /home/agentuser/.bashrc
 
-# Strip non-essential files to minimize image size
+# Strip non-essential files to minimize image size (keep directory structure
+# intact — rpm %post scripts using the alternatives system create symlinks
+# under /usr/share/man/man*/ and fail if those directories are missing)
 echo "Stripping non-essential files..."
-rm -rf "${ROOTFS}/usr/share/doc"/* "${ROOTFS}/usr/share/man"/* "${ROOTFS}/usr/share/info"/*
+find "${ROOTFS}/usr/share/doc" "${ROOTFS}/usr/share/man" "${ROOTFS}/usr/share/info" -type f -delete 2>/dev/null || true
 rm -rf "${ROOTFS}/usr/share/licenses" "${ROOTFS}/usr/share/groff"
 
 # Clean all caches to minimize image size
