@@ -43,16 +43,20 @@ bash-completion.
   `systemd-resolved` symlink); `incus-spawn`'s `BuildCommand` writes the real
   one at container start.
 
-`systemd-udevd` *is* installed: without it, host-managed device nodes like
-`/dev/net/tun` and `/dev/fuse` can't be `fchmod`'d from inside the container's
-user namespace, which breaks `%triggerin` scriptlets (e.g. `openssh-server`)
-during package installs in derived templates.
+`systemd-udev` is installed (as a systemd dependency and for `udevadm`) but its
+services are **masked** — in unprivileged containers, udevd can't write to
+`/sys` or receive kernel netlink events since device nodes are host-managed by
+Incus. A `/etc/tmpfiles.d/static-nodes-permissions.conf` override prevents
+`fchmod` failures on `/dev/net/tun` and `/dev/fuse` during rpm `%triggerin`
+scriptlets (the host-injected device nodes can't have their permissions changed
+inside the user namespace).
 
-**Trimmed systemd units.** ~19 services/timers that are useless or harmful in a
-container are masked — `systemd-homed`, the `systemd-pcrlock-*` and
+**Trimmed systemd units.** ~25 services/timers/sockets that are useless or
+harmful in a container are masked — `systemd-homed` (+ firstboot), all
+`systemd-udevd` services and sockets, the `systemd-pcrlock-*` and
 `systemd-tpm2-clear` TPM units, time sync (`timesyncd`, `time-wait-sync`),
-`systemd-boot-*` and `systemd-sysupdate*`, `unbound-anchor.timer`,
-`fstrim.timer`, and `selinux-autorelabel-mark`.
+`systemd-boot-*` and `systemd-sysupdate*`, `systemd-firstboot`,
+`unbound-anchor.timer`, `fstrim.timer`, and `selinux-autorelabel-mark`.
 
 **Packaging.** The output is an Incus unified tarball: `metadata.yaml` plus the
 rootfs under a `rootfs/` subdirectory, compressed as `.tar.xz`, with a

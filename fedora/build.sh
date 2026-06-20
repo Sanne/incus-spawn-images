@@ -58,7 +58,12 @@ chroot "${ROOTFS}" systemctl mask \
     unbound-anchor.timer \
     fstrim.timer \
     selinux-autorelabel-mark.service \
-    systemd-firstboot.service
+    systemd-firstboot.service \
+    systemd-homed-firstboot.service \
+    systemd-udevd.service \
+    systemd-udevd-control.socket \
+    systemd-udevd-kernel.socket \
+    systemd-udev-trigger.service
 
 # Mask static device node permissions — in unprivileged containers, /dev/net/tun
 # and /dev/fuse are injected by Incus (host-managed) and can't be fchmod'd from
