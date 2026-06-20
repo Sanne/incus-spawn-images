@@ -139,7 +139,38 @@ rm ~/.config/incus-spawn/images/minimal.yaml
 
 ## Using with incus-spawn
 
-Point `incus-spawn`'s `minimal.yaml` at a release:
+The built-in `tpl-minimal` template in `incus-spawn` already points at this
+repository's releases. On each `isx build tpl-minimal`, the tool checks whether
+the installed base image matches the expected tag and re-downloads if needed.
+
+### Managing base image versions
+
+`isx update-base` checks for new releases and lets you choose how to track them:
+
+```bash
+isx update-base              # interactive — list releases, choose track-latest or pin
+isx update-base --latest     # always track the newest built-in version
+isx update-base --list       # list available releases without changing anything
+isx update-base fedora-44-v3 # pin to a specific release tag
+```
+
+**Track latest** (default): no user override is written — `isx` uses whatever
+tag is baked into the current binary. Updating `isx` automatically picks up
+newer base images.
+
+**Pinned**: writes a user override to `~/.config/incus-spawn/images/minimal.yaml`
+with `pinned: true`. The pinned version is used until you explicitly change it.
+If a newer version becomes available in a later `isx` release, the build will
+print a warning:
+
+```
+Warning: base image is pinned to fedora-44-v3, but fedora-44-20260619 is available.
+Run 'isx update-base --latest' to update.
+```
+
+### Pointing at a release manually
+
+To reference a specific release directly in a template definition:
 
 ```yaml
 image: fedora-44-base
