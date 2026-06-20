@@ -59,11 +59,7 @@ chroot "${ROOTFS}" systemctl mask \
     fstrim.timer \
     selinux-autorelabel-mark.service \
     systemd-firstboot.service \
-    systemd-homed-firstboot.service \
-    systemd-udevd.service \
-    systemd-udevd-control.socket \
-    systemd-udevd-kernel.socket \
-    systemd-udev-trigger.service
+    systemd-homed-firstboot.service
 
 # Mask static device node permissions — in unprivileged containers, /dev/net/tun
 # and /dev/fuse are injected by Incus (host-managed) and can't be fchmod'd from
@@ -82,8 +78,9 @@ rm -f "${ROOTFS}/etc/resolv.conf"
 # Configure dhcpcd: don't overwrite resolv.conf — BuildCommand writes it at
 # build time pointing at the gateway dnsmasq, and it must be correct from the
 # moment a branched instance boots (before dhcpcd gets a lease).
-mkdir -p "${ROOTFS}/etc"
-echo "nohook resolv.conf" > "${ROOTFS}/etc/dhcpcd.conf"
+# Append to the default config so we keep duid, persistent, option requests, etc.
+grep -q 'nohook resolv.conf' "${ROOTFS}/etc/dhcpcd.conf" 2>/dev/null || \
+  echo "nohook resolv.conf" >> "${ROOTFS}/etc/dhcpcd.conf"
 
 # Enable DHCP on eth0 via dhcpcd (must specify interface to bypass udev)
 echo "Enabling dhcpcd for eth0..."
