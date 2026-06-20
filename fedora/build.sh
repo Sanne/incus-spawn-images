@@ -136,7 +136,7 @@ cp -a "${ROOTFS}/." /tmp/image-root/rootfs/
 echo "Packaging image..."
 mkdir -p "${OUTPUT}"
 TARBALL="${OUTPUT}/fedora-${RELEASE}-${ARCH}.tar.xz"
-tar -cJf "${TARBALL}" -C /tmp/image-root .
+tar --xattrs -cJf "${TARBALL}" -C /tmp/image-root .
 
 # Compute and save SHA256
 sha256sum "${TARBALL}" | awk '{print $1}' > "${TARBALL}.sha256"
