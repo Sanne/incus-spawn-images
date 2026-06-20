@@ -6,6 +6,10 @@ OUTPUT_DIR="${SCRIPT_DIR}/output"
 CONFIG_DIR="${HOME}/.config/incus-spawn/images"
 OVERRIDE_FILE="${CONFIG_DIR}/minimal.yaml"
 ARCH=$(uname -m)
+case "${ARCH}" in
+  arm64) ARCH=aarch64 ;;
+  amd64) ARCH=x86_64 ;;
+esac
 TAG="local-$(date +%Y%m%d-%H%M%S)"
 
 echo "=== Building base image locally ==="
