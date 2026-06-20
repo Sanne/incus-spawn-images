@@ -59,6 +59,15 @@ chroot "${ROOTFS}" systemctl mask \
     fstrim.timer \
     selinux-autorelabel-mark.service
 
+# Mask static device node permissions — in unprivileged containers, /dev/net/tun
+# and /dev/fuse are injected by Incus (host-managed) and can't be fchmod'd from
+# inside the user namespace. The systemd %triggerin scriptlet runs
+# systemd-tmpfiles --create which processes these rules and fails, aborting the
+# entire rpm transaction.
+mkdir -p "${ROOTFS}/etc/tmpfiles.d"
+printf '# Container override: skip static device node permissions.\n# Host-injected device nodes cannot be fchmod'"'"'d inside the user namespace.\n' \
+  > "${ROOTFS}/etc/tmpfiles.d/static-nodes-permissions.conf"
+
 # Patch nsswitch.conf: remove mDNS resolve entry so .local domains use dnsmasq.
 # Also ensure no dangling resolv.conf (BuildCommand writes the real one at container start).
 sed -i 's/resolve \[!UNAVAIL=return\] //' "${ROOTFS}/etc/nsswitch.conf"
