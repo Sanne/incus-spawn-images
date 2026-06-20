@@ -79,6 +79,12 @@ printf '# Container override: skip static device node permissions.\n# Host-injec
 sed -i 's/resolve \[!UNAVAIL=return\] //' "${ROOTFS}/etc/nsswitch.conf"
 rm -f "${ROOTFS}/etc/resolv.conf"
 
+# Configure dhcpcd: don't overwrite resolv.conf — BuildCommand writes it at
+# build time pointing at the gateway dnsmasq, and it must be correct from the
+# moment a branched instance boots (before dhcpcd gets a lease).
+mkdir -p "${ROOTFS}/etc"
+echo "nohook resolv.conf" > "${ROOTFS}/etc/dhcpcd.conf"
+
 # Enable DHCP on eth0 via dhcpcd (must specify interface to bypass udev)
 echo "Enabling dhcpcd for eth0..."
 mkdir -p "${ROOTFS}/etc/systemd/system"
