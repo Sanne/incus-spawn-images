@@ -97,9 +97,24 @@ Releases attach both architecture tarballs and a combined `SHA256SUMS`.
 
 ## Testing locally with incus-spawn
 
-After building locally (see above), you can test the image without publishing a
-release. The easiest way is to define a standalone test template in
-`~/.config/incus-spawn/images/` — this keeps your real `tpl-minimal` untouched:
+The quickest way to build and test a local image:
+
+```bash
+./test-local.sh              # builds image, configures isx to use it
+isx build tpl-minimal        # imports the local tarball
+isx build tpl-dev             # rebuild derived templates
+./revert-local.sh            # reverts isx to the built-in base image
+```
+
+`test-local.sh` runs the podman build, then writes a `tpl-minimal` override
+pointing at the local tarball via a `file://` URL. Each run generates a unique
+tag so `isx` re-imports automatically. `revert-local.sh` deletes the override.
+
+### Manual setup
+
+If you prefer to set things up by hand, or want a standalone test template that
+doesn't override `tpl-minimal`, create a YAML file in
+`~/.config/incus-spawn/images/`:
 
 ```yaml
 # ~/.config/incus-spawn/images/test-base.yaml
@@ -110,31 +125,13 @@ image_url: file:///path/to/incus-spawn-images/output/fedora-44-{arch}.tar.xz
 image_tag: local-test
 ```
 
-Then build it:
-
-```bash
-isx build tpl-test-base      # imports the local tarball
-isx branch tpl-test-base     # launch an instance to verify
-```
-
 No `image_sha256` — omitting it skips the hash check, which is what you want
-during iterative testing. The `image_tag` value triggers re-import when changed,
-so bump it (e.g. `local-test-2`) each time you rebuild the tarball.
+during iterative testing. Bump `image_tag` each time you rebuild the tarball
+so `isx` detects the change and re-imports.
 
-Alternatively, you can override `tpl-minimal` directly to test how derived
-templates (`tpl-dev`, `tpl-java`, etc.) behave on the new base. Create
-`~/.config/incus-spawn/images/minimal.yaml`:
-
-```yaml
-name: tpl-minimal
-description: Base OS only
-image: fedora-44-base
-image_url: file:///path/to/incus-spawn-images/output/fedora-44-{arch}.tar.xz
-image_tag: local-test
-```
-
-Then rebuild the full chain (`isx build tpl-minimal`, `isx build tpl-dev`, etc.).
-When done, delete the override to revert to the released image:
+To override `tpl-minimal` directly (so derived templates like `tpl-dev` build
+on top of your local image), use `name: tpl-minimal` instead. When done, delete
+the override to revert:
 
 ```bash
 rm ~/.config/incus-spawn/images/minimal.yaml
