@@ -71,16 +71,14 @@ mkdir -p output && podman run --rm --privileged \
   fedora:44 bash /build/fedora/build.sh
 ```
 
-`output/` must exist before the run — podman bind-mounts it into the container,
-and the mount fails (`statfs ...: no such file or directory`) if the host
-directory is missing, hence the leading `mkdir -p`. The image lands in
-`output/fedora-44-<arch>.tar.xz` alongside its `.sha256`.
+`output/` must exist before the run — hence the leading `mkdir -p`.
+The image lands in `output/fedora-44-<arch>.tar.xz` alongside its `.sha256`.
 
 ## CI
 
 [`.github/workflows/build-fedora.yml`](.github/workflows/build-fedora.yml)
-builds both `x86_64` (on `ubuntu-latest`) and `aarch64` (on
-`ubuntu-24.04-arm`) via the same `podman` invocation.
+builds both `x86_64` (on a regular instance) and `aarch64` (on an arm instance)
+via the same `podman` invocation.
 
 Triggers:
 
