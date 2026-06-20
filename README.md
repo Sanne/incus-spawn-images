@@ -93,6 +93,44 @@ Triggers:
 
 Releases attach both architecture tarballs and a combined `SHA256SUMS`.
 
+## Testing locally with incus-spawn
+
+After building locally (see above), you can test the image without publishing a
+release. Create a user override at `~/.config/incus-spawn/images/minimal.yaml`
+that points to the local tarball via a `file://` URL:
+
+```yaml
+name: tpl-minimal
+description: Base OS only
+image: fedora-44-base
+image_url: file:///path/to/incus-spawn-images/output/fedora-44-{arch}.tar.xz
+image_tag: local-test
+```
+
+Note: no `image_sha256` — omitting it skips the hash check, which is what you
+want during iterative testing. The `image_tag: local-test` ensures `isx` detects
+it as different from whatever is currently imported and re-imports.
+
+Then rebuild your templates:
+
+```bash
+isx build tpl-minimal       # imports the local tarball
+isx build tpl-dev            # derived template, tests package installs
+```
+
+Each time you rebuild the tarball, bump the tag (e.g. `local-test-2`) or delete
+the existing Incus image so `isx` re-imports:
+
+```bash
+isx update-base --latest     # removes the override, reverts to the built-in
+```
+
+When done testing, delete the override to go back to the released image:
+
+```bash
+rm ~/.config/incus-spawn/images/minimal.yaml
+```
+
 ## Using with incus-spawn
 
 Point `incus-spawn`'s `minimal.yaml` at a release:
