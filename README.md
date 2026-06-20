@@ -139,6 +139,47 @@ rm ~/.config/incus-spawn/images/minimal.yaml
 # or: rm ~/.config/incus-spawn/images/test-base.yaml
 ```
 
+## Releasing a new version
+
+To publish a new base image release:
+
+1. **Trigger the workflow** — either via the GitHub UI (Actions → Build Fedora
+   Base Image → Run workflow) or the CLI:
+
+   ```bash
+   # Auto-generated date tag (fedora-44-YYYYMMDD):
+   gh workflow run build-fedora.yml
+
+   # Explicit tag:
+   gh workflow run build-fedora.yml --field version=fedora-44-v7
+   ```
+
+2. **Wait for CI** — the workflow builds both `x86_64` and `aarch64` images and
+   creates a GitHub release with the tarballs and `SHA256SUMS`.
+
+3. **Update `incus-spawn`** — edit
+   `src/main/resources/images/minimal.yaml` in the `incus-spawn` repo:
+
+   ```yaml
+   image_tag: fedora-44-YYYYMMDD          # the new release tag
+   image_sha256:
+     x86_64: <sha256-from-SHA256SUMS>
+     aarch64: <sha256-from-SHA256SUMS>
+   ```
+
+   Get the checksums from the release's `SHA256SUMS` file:
+
+   ```bash
+   curl -sL https://github.com/Sanne/incus-spawn-images/releases/download/<tag>/SHA256SUMS
+   ```
+
+4. **Rebuild and test `isx`** — `mvn package && ./install.sh`, then
+   `isx build tpl-minimal` to verify the new image imports and boots correctly.
+
+Monthly scheduled builds (15th, 03:17 UTC) automatically create a release for
+security updates. Pushes to `main` touching `fedora/**` build artifacts but
+don't release — use manual dispatch to publish those changes.
+
 ## Using with incus-spawn
 
 The built-in `tpl-minimal` template in `incus-spawn` already points at this
