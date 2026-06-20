@@ -96,8 +96,32 @@ Releases attach both architecture tarballs and a combined `SHA256SUMS`.
 ## Testing locally with incus-spawn
 
 After building locally (see above), you can test the image without publishing a
-release. Create a user override at `~/.config/incus-spawn/images/minimal.yaml`
-that points to the local tarball via a `file://` URL:
+release. The easiest way is to define a standalone test template in
+`~/.config/incus-spawn/images/` — this keeps your real `tpl-minimal` untouched:
+
+```yaml
+# ~/.config/incus-spawn/images/test-base.yaml
+name: tpl-test-base
+description: Local base image test
+image: fedora-44-test
+image_url: file:///path/to/incus-spawn-images/output/fedora-44-{arch}.tar.xz
+image_tag: local-test
+```
+
+Then build it:
+
+```bash
+isx build tpl-test-base      # imports the local tarball
+isx branch tpl-test-base     # launch an instance to verify
+```
+
+No `image_sha256` — omitting it skips the hash check, which is what you want
+during iterative testing. The `image_tag` value triggers re-import when changed,
+so bump it (e.g. `local-test-2`) each time you rebuild the tarball.
+
+Alternatively, you can override `tpl-minimal` directly to test how derived
+templates (`tpl-dev`, `tpl-java`, etc.) behave on the new base. Create
+`~/.config/incus-spawn/images/minimal.yaml`:
 
 ```yaml
 name: tpl-minimal
@@ -107,28 +131,12 @@ image_url: file:///path/to/incus-spawn-images/output/fedora-44-{arch}.tar.xz
 image_tag: local-test
 ```
 
-Note: no `image_sha256` — omitting it skips the hash check, which is what you
-want during iterative testing. The `image_tag: local-test` ensures `isx` detects
-it as different from whatever is currently imported and re-imports.
-
-Then rebuild your templates:
-
-```bash
-isx build tpl-minimal       # imports the local tarball
-isx build tpl-dev            # derived template, tests package installs
-```
-
-Each time you rebuild the tarball, bump the tag (e.g. `local-test-2`) or delete
-the existing Incus image so `isx` re-imports:
-
-```bash
-isx update-base --latest     # removes the override, reverts to the built-in
-```
-
-When done testing, delete the override to go back to the released image:
+Then rebuild the full chain (`isx build tpl-minimal`, `isx build tpl-dev`, etc.).
+When done, delete the override to revert to the released image:
 
 ```bash
 rm ~/.config/incus-spawn/images/minimal.yaml
+# or: rm ~/.config/incus-spawn/images/test-base.yaml
 ```
 
 ## Using with incus-spawn
