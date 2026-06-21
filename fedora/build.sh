@@ -18,7 +18,7 @@ dnf --use-host-config \
     --setopt=tsflags=nodocs \
     --exclude='kernel*' \
     -y install \
-    systemd systemd-udev dhcpcd passwd \
+    systemd systemd-udev systemd-networkd passwd \
     sudo bash coreutils util-linux dnf5 \
     glibc-langpack-en bash-completion \
     git curl which procps-ng findutils \
@@ -75,36 +75,63 @@ printf '# Container override: skip static device node permissions.\n# Host-injec
 sed -i 's/resolve \[!UNAVAIL=return\] //' "${ROOTFS}/etc/nsswitch.conf"
 rm -f "${ROOTFS}/etc/resolv.conf"
 
-# Configure dhcpcd for container use. Append to the default config so we keep
-# duid, persistent, option requests, etc.
-# - nohook resolv.conf: don't overwrite resolv.conf — BuildCommand writes it
-#   pointing at the gateway dnsmasq, and it must survive reboots.
-# - noarp: skip ARP conflict detection (~2s delay) — Incus manages all IPs.
-# - nodev: skip udev plugin init — the interface is a fixed veth.
-for opt in "nohook resolv.conf" "noarp" "nodev"; do
-  grep -q "^${opt}$" "${ROOTFS}/etc/dhcpcd.conf" 2>/dev/null || \
-    echo "${opt}" >> "${ROOTFS}/etc/dhcpcd.conf"
-done
+# Enable systemd-networkd for static IP assignment (configured per-branch by isx).
+# No .network file is baked in — branches push their own at creation time.
+echo "Enabling systemd-networkd..."
+mkdir -p "${ROOTFS}/etc/systemd/network"
+chroot "${ROOTFS}" systemctl enable systemd-networkd
 
-# Enable DHCP on eth0 via dhcpcd (must specify interface to bypass udev)
-echo "Enabling dhcpcd for eth0..."
+# Install connectivity watchdog — recovers static IP after host sleep/wake.
+# Exits silently when no static network config exists (safe in templates).
+echo "Installing network watchdog..."
 mkdir -p "${ROOTFS}/etc/systemd/system"
-cat > "${ROOTFS}/etc/systemd/system/dhcpcd-eth0.service" << 'SVCEOF'
+cat > "${ROOTFS}/usr/local/bin/isx-network-watchdog" << 'WDEOF'
+#!/bin/bash
+IFACE=eth0
+NETWORK_FILE=/etc/systemd/network/10-eth0.network
+
+EXPECTED_IP=$(grep '^Address=' "$NETWORK_FILE" 2>/dev/null | head -1 | cut -d= -f2 | cut -d/ -f1)
+GATEWAY=$(grep '^Gateway=' "$NETWORK_FILE" 2>/dev/null | head -1 | cut -d= -f2)
+
+[ -z "$EXPECTED_IP" ] || [ -z "$GATEWAY" ] && exit 0
+
+CURRENT_IP=$(ip -4 -o addr show "$IFACE" 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
+
+if [ "$CURRENT_IP" != "$EXPECTED_IP" ]; then
+    logger -t isx-watchdog "IP mismatch: expected=$EXPECTED_IP current=$CURRENT_IP, restarting networkd"
+    systemctl restart systemd-networkd
+    exit 0
+fi
+
+if ! ping -c1 -W2 "$GATEWAY" >/dev/null 2>&1; then
+    logger -t isx-watchdog "Gateway $GATEWAY unreachable, restarting networkd"
+    systemctl restart systemd-networkd
+fi
+WDEOF
+chmod +x "${ROOTFS}/usr/local/bin/isx-network-watchdog"
+
+cat > "${ROOTFS}/etc/systemd/system/isx-network-watchdog.service" << 'SVCEOF'
 [Unit]
-Description=DHCP client for eth0
-After=network.target
-Wants=network.target
+Description=incus-spawn network connectivity watchdog
+After=systemd-networkd.service
 
 [Service]
-ExecStart=/usr/sbin/dhcpcd -4 -q eth0
-ExecStop=/usr/sbin/dhcpcd -x eth0
-Restart=on-failure
-RestartSec=1
+Type=oneshot
+ExecStart=/usr/local/bin/isx-network-watchdog
+SVCEOF
+
+cat > "${ROOTFS}/etc/systemd/system/isx-network-watchdog.timer" << 'TMREOF'
+[Unit]
+Description=incus-spawn network watchdog timer
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=30s
 
 [Install]
-WantedBy=multi-user.target
-SVCEOF
-chroot "${ROOTFS}" systemctl enable dhcpcd-eth0
+WantedBy=timers.target
+TMREOF
+chroot "${ROOTFS}" systemctl enable isx-network-watchdog.timer
 
 # Configure bash prompt (ISX window title) and bash-completion
 cat >> "${ROOTFS}/home/agentuser/.bashrc" << 'BASHEOF'
