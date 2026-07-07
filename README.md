@@ -8,6 +8,10 @@ no longer depend on the linuxcontainers.org image server and skip the repeated
 per-build provisioning, so spinning up a fresh container is faster and more
 reproducible.
 
+The build produces **two image formats** from a single rootfs:
+- **Container image** (`.tar.xz`): rootfs tarball for Incus containers
+- **VM image** (`-vm.tar.xz`): bootable disk image (XFS root, UEFI/GRUB2) for Incus VMs
+
 ## What's baked in
 
 The image is a Fedora 44 systemd rootfs bootstrapped directly with
@@ -17,12 +21,12 @@ The image is a Fedora 44 systemd rootfs bootstrapped directly with
 and without docs (`tsflags=nodocs`) to keep the image small:
 
 - Core: `systemd`, `systemd-udevd`, `sudo`, `bash`, `coreutils`, `util-linux`, `passwd`, `dnf5`
-- DNS/net tooling: `dhcpcd`, `iproute`, `iputils`
+- Networking: `systemd-networkd`, `iproute`, `iputils`
 - Locale: `glibc-langpack-en`
 - Dev/agent basics: `git`, `curl`, `which`, `procps-ng`, `findutils`, `bash-completion`
 
-The kernel (`kernel*`) is **excluded** — containers share the host kernel, so
-shipping one wastes space. Bloat that the base pulls in anyway
+The kernel (`kernel*`) is **excluded** from the container image — containers
+share the host kernel. Bloat that the base pulls in anyway
 (`glibc-all-langpacks`, `geolite2-city`, `geolite2-country`) is removed after
 install, and `/usr/share/doc`, `man`, `info`, `licenses`, and `groff` are
 stripped.
@@ -32,25 +36,19 @@ stripped.
 a `.bashrc` that sets the terminal window title to `isx:<hostname>` and sources
 bash-completion.
 
-**Networking.** The image carries no `systemd-resolved`:
+**Networking.** `systemd-networkd` is enabled for static IP assignment
+(configured per-branch by `incus-spawn`). A connectivity watchdog
+(`isx-network-watchdog.timer`) monitors the expected IP/gateway every 30s and
+restarts `systemd-networkd` on mismatch (recovers from host sleep/wake).
+`nsswitch.conf` has the mDNS `resolve` entry stripped so `.local` names go to
+`incus-spawn`'s gateway dnsmasq instead of multicast DNS. `/etc/resolv.conf` is
+removed; `incus-spawn`'s `BuildCommand` writes the real one at container start.
 
-- DHCP is handled by a small custom `dhcpcd-eth0.service` that runs
-  `dhcpcd -4 -q eth0`, naming the interface explicitly. Without this the
-  container would boot with no IPv4 address.
-- `nsswitch.conf` has the mDNS `resolve` entry stripped so `.local` names go to
-  `incus-spawn`'s gateway dnsmasq instead of multicast DNS.
-- `/etc/resolv.conf` is removed (rather than left as a dangling
-  `systemd-resolved` symlink); `incus-spawn`'s `BuildCommand` writes the real
-  one at container start.
-
-`systemd-udev` is installed (as a systemd dependency and for `udevadm`). Its
-services run but are mostly inert — in unprivileged containers, udevd can't
-write to `/sys` or receive kernel netlink events since device nodes are
-host-managed by Incus. We keep it running because `dhcpcd` uses a udev plugin
-for interface detection. A `/etc/tmpfiles.d/static-nodes-permissions.conf`
-override prevents `fchmod` failures on `/dev/net/tun` and `/dev/fuse` during
-rpm `%triggerin` scriptlets (the host-injected device nodes can't have their
-permissions changed inside the user namespace).
+`systemd-udev` is installed (as a systemd dependency and for `udevadm`). A
+`/etc/tmpfiles.d/static-nodes-permissions.conf` override prevents `fchmod`
+failures on `/dev/net/tun` and `/dev/fuse` during rpm `%triggerin` scriptlets
+(host-injected device nodes can't have their permissions changed inside the
+user namespace).
 
 **Trimmed systemd units.** ~20 services/timers/sockets that are useless or
 harmful in a container are masked — `systemd-homed` (+ firstboot), the
@@ -59,14 +57,21 @@ harmful in a container are masked — `systemd-homed` (+ firstboot), the
 `systemd-firstboot`, `unbound-anchor.timer`, `fstrim.timer`, and
 `selinux-autorelabel-mark`.
 
-**Packaging.** The output is an Incus unified tarball: `metadata.yaml` plus the
-rootfs under a `rootfs/` subdirectory, compressed as `.tar.xz`, with a
-companion `.sha256`.
+**Container packaging.** Incus unified tarball: `metadata.yaml` plus the rootfs
+under a `rootfs/` subdirectory, compressed as `.tar.xz`, with a companion
+`.sha256`.
+
+**VM packaging.** On top of the common rootfs, the VM image adds `kernel-core`,
+`dracut`, and `grub2-efi` (architecture-specific). The rootfs is written to a
+2 GB GPT disk with a 256 MB EFI System Partition (FAT32) and an XFS root
+partition. GRUB is installed with serial console support (`console=ttyS0`).
+The disk is converted to qcow2 and packaged as an Incus unified tarball
+(`metadata.yaml` + `rootfs.img`).
 
 ## Building locally
 
-Requires a Fedora container runtime with privileges (privileged is needed for
-the chroot/`dnf --installroot` steps):
+Requires a container runtime with privileges (privileged is needed for
+chroot, `dnf --installroot`, and loop device setup for the VM image):
 
 ```bash
 mkdir -p output && podman run --rm --privileged \
@@ -77,7 +82,9 @@ mkdir -p output && podman run --rm --privileged \
 ```
 
 `output/` must exist before the run — hence the leading `mkdir -p`.
-The image lands in `output/fedora-44-<arch>.tar.xz` alongside its `.sha256`.
+Output files:
+- `output/fedora-44-<arch>.tar.xz` — container image (+ `.sha256`)
+- `output/fedora-44-<arch>-vm.tar.xz` — VM image (+ `.sha256`)
 
 ## CI
 
@@ -94,21 +101,23 @@ Triggers:
 - **Manual dispatch** — optionally pass a `version` tag (e.g. `fedora-44-v2`)
   and publishes a release.
 
-Releases attach both architecture tarballs and a combined `SHA256SUMS`.
+Releases attach container and VM tarballs for both architectures, plus a
+combined `SHA256SUMS`.
 
 ## Testing locally with incus-spawn
 
-The quickest way to build and test a local image:
+The quickest way to build and test local images:
 
 ```bash
-./test-local.sh              # builds image, configures isx to use it
-isx build tpl-minimal        # imports the local tarball
+./test-local.sh              # builds both images, configures isx to use them
+isx build tpl-minimal        # imports the local container tarball
+isx build tpl-minimal --type vm  # imports the local VM image
 isx build tpl-dev             # rebuild derived templates
 ./revert-local.sh            # reverts isx to the built-in base image
 ```
 
 `test-local.sh` runs the podman build, then writes a `tpl-minimal` override
-pointing at the local tarball via a `file://` URL. Each run generates a unique
+pointing at the local tarballs via `file://` URLs. Each run generates a unique
 tag so `isx` re-imports automatically. `revert-local.sh` deletes the override.
 
 ### Manual setup
@@ -123,12 +132,13 @@ name: tpl-test-base
 description: Local base image test
 image: fedora-44-test
 image_url: file:///path/to/incus-spawn-images/output/fedora-44-{arch}.tar.xz
+vm_image_url: file:///path/to/incus-spawn-images/output/fedora-44-{arch}-vm.tar.xz
 image_tag: local-test
 ```
 
-No `image_sha256` — omitting it skips the hash check, which is what you want
-during iterative testing. Bump `image_tag` each time you rebuild the tarball
-so `isx` detects the change and re-imports.
+No `image_sha256` / `vm_image_sha256` — omitting them skips the hash check,
+which is what you want during iterative testing. Bump `image_tag` each time you
+rebuild the tarballs so `isx` detects the change and re-imports.
 
 To override `tpl-minimal` directly (so derived templates like `tpl-dev` build
 on top of your local image), use `name: tpl-minimal` instead. When done, delete
@@ -165,6 +175,9 @@ To publish a new base image release:
    image_sha256:
      x86_64: <sha256-from-SHA256SUMS>
      aarch64: <sha256-from-SHA256SUMS>
+   vm_image_sha256:
+     x86_64: <sha256-from-SHA256SUMS>
+     aarch64: <sha256-from-SHA256SUMS>
    ```
 
    Get the checksums from the release's `SHA256SUMS` file:
@@ -174,7 +187,8 @@ To publish a new base image release:
    ```
 
 4. **Rebuild and test `isx`** — `mvn package && ./install.sh`, then
-   `isx build tpl-minimal` to verify the new image imports and boots correctly.
+   `isx build tpl-minimal` and `isx build tpl-minimal --type vm` to verify both
+   image types import and boot correctly.
 
 Monthly scheduled builds (15th, 03:17 UTC) automatically create a release for
 security updates. Pushes to `main` touching `fedora/**` build artifacts but
@@ -218,7 +232,11 @@ To reference a specific release directly in a template definition:
 ```yaml
 image: fedora-44-base
 image_url: https://github.com/Sanne/incus-spawn-images/releases/download/<tag>/fedora-44-{arch}.tar.xz
+vm_image_url: https://github.com/Sanne/incus-spawn-images/releases/download/<tag>/fedora-44-{arch}-vm.tar.xz
 image_sha256:
+  x86_64: <sha256>
+  aarch64: <sha256>
+vm_image_sha256:
   x86_64: <sha256>
   aarch64: <sha256>
 ```
