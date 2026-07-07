@@ -32,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Build image
+      - name: Build container image
         run: |
           mkdir -p output
           podman run --rm --privileged \
@@ -42,13 +42,30 @@ jobs:
             fedora:${{ env.RELEASE }} \
             bash /build/fedora/build.sh
 
-      - name: Upload artifact
+      - name: Install VM build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libguestfs-tools qemu-utils jq curl
+
+      - name: Build VM image
+        run: |
+          fedora/build-vm.sh output
+
+      - name: Upload container artifact
         uses: actions/upload-artifact@v7
         with:
           name: fedora-${{ env.RELEASE }}-${{ matrix.arch }}
           path: |
             output/fedora-${{ env.RELEASE }}-${{ matrix.arch }}.tar.xz
             output/fedora-${{ env.RELEASE }}-${{ matrix.arch }}.tar.xz.sha256
+
+      - name: Upload VM artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: fedora-${{ env.RELEASE }}-${{ matrix.arch }}-vm
+          path: |
+            output/fedora-${{ env.RELEASE }}-${{ matrix.arch }}-vm.tar.xz
+            output/fedora-${{ env.RELEASE }}-${{ matrix.arch }}-vm.tar.xz.sha256
 
   release:
     needs: build
@@ -66,6 +83,8 @@ jobs:
           mkdir -p release
           cp artifacts/fedora-${{ env.RELEASE }}-x86_64/* release/
           cp artifacts/fedora-${{ env.RELEASE }}-aarch64/* release/
+          cp artifacts/fedora-${{ env.RELEASE }}-x86_64-vm/* release/
+          cp artifacts/fedora-${{ env.RELEASE }}-aarch64-vm/* release/
 
           # Create combined SHA256SUMS
           cd release
@@ -94,8 +113,13 @@ jobs:
 
             Pre-baked with: agentuser, base packages, systemd service masks, resolved disabled.
 
-            **Usage:** Update `image_url` and `image_sha256` in `incus-spawn`'s `minimal.yaml` to point to these assets.
+            **Container image** (`.tar.xz`): rootfs tarball for Incus containers.
+            **VM image** (`-vm.tar.xz`): qcow2 disk image for Incus VMs, based on the stock Incus Fedora image.
+
+            **Usage:** Update `image_url`, `vm_image_url`, and SHA256 fields in `incus-spawn`'s `minimal.yaml` to point to these assets.
           files: |
             release/fedora-${{ env.RELEASE }}-x86_64.tar.xz
             release/fedora-${{ env.RELEASE }}-aarch64.tar.xz
+            release/fedora-${{ env.RELEASE }}-x86_64-vm.tar.xz
+            release/fedora-${{ env.RELEASE }}-aarch64-vm.tar.xz
             release/SHA256SUMS
