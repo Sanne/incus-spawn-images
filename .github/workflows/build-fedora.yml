@@ -51,6 +51,12 @@ jobs:
         env:
           LIBGUESTFS_BACKEND: direct
         run: |
+          # The runner's kernel differs from the installed linux-image-generic,
+          # so supermin can't find modules. Point it at the installed kernel.
+          INSTALLED_KERNEL=$(ls /boot/vmlinuz-* | head -1)
+          INSTALLED_VERSION=$(basename "$INSTALLED_KERNEL" | sed 's/^vmlinuz-//')
+          export SUPERMIN_KERNEL="$INSTALLED_KERNEL"
+          export SUPERMIN_MODULES="/lib/modules/$INSTALLED_VERSION"
           fedora/build-vm.sh output
 
       - name: Upload container artifact
