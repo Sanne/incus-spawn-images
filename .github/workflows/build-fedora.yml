@@ -46,6 +46,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libguestfs-tools qemu-utils jq curl linux-image-generic
+          # passt fails on GitHub runners (even as root); hide it so
+          # libguestfs falls back to QEMU's built-in slirp networking
+          sudo dpkg -r --force-depends passt || true
 
       - name: Build VM image
         env:
