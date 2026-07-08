@@ -45,9 +45,11 @@ jobs:
       - name: Install VM build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y libguestfs-tools qemu-utils jq curl
+          sudo apt-get install -y libguestfs-tools qemu-utils jq curl linux-image-generic
 
       - name: Build VM image
+        env:
+          LIBGUESTFS_BACKEND: direct
         run: |
           fedora/build-vm.sh output
 
