@@ -47,12 +47,32 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libguestfs-tools qemu-utils jq curl linux-image-generic
 
+      - name: Debug supermin environment
+        run: |
+          echo "=== Running kernel ==="
+          uname -r
+          echo "=== /boot/ contents ==="
+          ls -la /boot/vmlinuz-* 2>/dev/null || echo "No vmlinuz in /boot/"
+          echo "=== /lib/modules/ contents ==="
+          ls /lib/modules/
+          echo "=== supermin --build test ==="
+          INSTALLED_KERNEL=$(ls /boot/vmlinuz-* 2>/dev/null | head -1)
+          INSTALLED_VERSION=$(basename "$INSTALLED_KERNEL" | sed 's/^vmlinuz-//')
+          echo "Installed kernel: $INSTALLED_KERNEL"
+          echo "Installed version: $INSTALLED_VERSION"
+          echo "Modules dir exists: $(test -d /lib/modules/$INSTALLED_VERSION && echo yes || echo no)"
+          ls /lib/modules/$INSTALLED_VERSION/ 2>/dev/null | head -10
+          echo "=== supermin direct test ==="
+          export SUPERMIN_KERNEL="$INSTALLED_KERNEL"
+          export SUPERMIN_MODULES="/lib/modules/$INSTALLED_VERSION"
+          supermin --build -v --format ext2 -o /tmp/supermin-test /usr/lib/x86_64-linux-gnu/guestfs/supermin.d 2>&1 || true
+          echo "=== libguestfs-test-tool ==="
+          LIBGUESTFS_BACKEND=direct LIBGUESTFS_DEBUG=1 LIBGUESTFS_TRACE=1 libguestfs-test-tool 2>&1 | tail -80 || true
+
       - name: Build VM image
         env:
           LIBGUESTFS_BACKEND: direct
         run: |
-          # The runner's kernel differs from the installed linux-image-generic,
-          # so supermin can't find modules. Point it at the installed kernel.
           INSTALLED_KERNEL=$(ls /boot/vmlinuz-* | head -1)
           INSTALLED_VERSION=$(basename "$INSTALLED_KERNEL" | sed 's/^vmlinuz-//')
           export SUPERMIN_KERNEL="$INSTALLED_KERNEL"
