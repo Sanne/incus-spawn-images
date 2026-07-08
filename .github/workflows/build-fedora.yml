@@ -51,13 +51,7 @@ jobs:
         env:
           LIBGUESTFS_BACKEND: direct
         run: |
-          # Kernel images are mode 600; supermin needs to read them
-          sudo chmod +r /boot/vmlinuz-*
-          INSTALLED_KERNEL=$(ls /boot/vmlinuz-* | head -1)
-          INSTALLED_VERSION=$(basename "$INSTALLED_KERNEL" | sed 's/^vmlinuz-//')
-          export SUPERMIN_KERNEL="$INSTALLED_KERNEL"
-          export SUPERMIN_MODULES="/lib/modules/$INSTALLED_VERSION"
-          fedora/build-vm.sh output
+          sudo -E fedora/build-vm.sh output
 
       - name: Upload container artifact
         uses: actions/upload-artifact@v7
