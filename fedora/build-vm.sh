@@ -4,14 +4,14 @@ set -euo pipefail
 # Build a prebaked Fedora VM image for incus-spawn.
 #
 # Downloads the stock Incus Fedora VM image (which already has the
-# incus-agent, bootloader, and kernel set up), mounts it via qemu-nbd,
-# installs packages and applies configuration, then repackages as an
-# Incus VM tarball.
+# incus-agent, bootloader, and kernel set up), converts to raw, mounts
+# via losetup, installs packages and applies configuration, then
+# repackages as an Incus VM tarball.
 #
 # Usage: ./build-vm.sh <output-dir>
 #
-# Dependencies: qemu-utils (qemu-img, qemu-nbd), jq, curl
-# Must run as root (for nbd mount).
+# Dependencies: qemu-utils (qemu-img), jq, curl
+# Must run as root (for losetup + mount).
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUTPUT="${1:?Usage: $0 <output-dir>}"
@@ -21,7 +21,7 @@ IMAGE_SERVER="https://images.linuxcontainers.org"
 
 # --- Dependency check ---
 MISSING=()
-for cmd in qemu-img qemu-nbd jq curl; do
+for cmd in qemu-img jq curl; do
   command -v "$cmd" >/dev/null 2>&1 || MISSING+=("$cmd")
 done
 if [ ${#MISSING[@]} -gt 0 ]; then
@@ -30,7 +30,7 @@ if [ ${#MISSING[@]} -gt 0 ]; then
 fi
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "Error: must run as root (need nbd + mount)"
+  echo "Error: must run as root (need losetup + mount)"
   exit 1
 fi
 
@@ -63,18 +63,18 @@ echo "Found: ${DISK_URL}"
 # --- Download ---
 STAGING=$(mktemp -d /tmp/vm-image-XXXXXX)
 MOUNTPOINT=$(mktemp -d /tmp/vm-mount-XXXXXX)
-NBD_DEV=""
+LOOP_DEV=""
 
 cleanup() {
   set +e
-  if [ -n "${NBD_DEV}" ]; then
-    umount "${MOUNTPOINT}/dev/pts" 2>/dev/null
-    umount "${MOUNTPOINT}/dev" 2>/dev/null
-    umount "${MOUNTPOINT}/proc" 2>/dev/null
-    umount "${MOUNTPOINT}/sys" 2>/dev/null
-    umount "${MOUNTPOINT}/run" 2>/dev/null
-    umount "${MOUNTPOINT}" 2>/dev/null
-    qemu-nbd --disconnect "${NBD_DEV}" 2>/dev/null
+  umount "${MOUNTPOINT}/dev/pts" 2>/dev/null
+  umount "${MOUNTPOINT}/dev" 2>/dev/null
+  umount "${MOUNTPOINT}/proc" 2>/dev/null
+  umount "${MOUNTPOINT}/sys" 2>/dev/null
+  umount "${MOUNTPOINT}/run" 2>/dev/null
+  umount "${MOUNTPOINT}" 2>/dev/null
+  if [ -n "${LOOP_DEV}" ]; then
+    losetup -d "${LOOP_DEV}" 2>/dev/null
   fi
   rm -rf "${STAGING}" "${MOUNTPOINT}"
 }
@@ -86,35 +86,22 @@ curl -fL --progress-bar -o "${STAGING}/disk.qcow2" "${DISK_URL}"
 echo "Expanding disk to 10G..."
 qemu-img resize "${STAGING}/disk.qcow2" 10G
 
-# --- Mount via qemu-nbd ---
+# --- Convert to raw and mount via losetup ---
+echo "Converting to raw image..."
+qemu-img convert -f qcow2 -O raw "${STAGING}/disk.qcow2" "${STAGING}/disk.raw"
+rm -f "${STAGING}/disk.qcow2"
+
 echo "Mounting disk image..."
-modprobe nbd max_part=8 2>/dev/null || true
-
-# Find a free nbd device
-for dev in /dev/nbd{0..7}; do
-  if ! lsblk "${dev}" &>/dev/null; then
-    NBD_DEV="${dev}"
-    break
-  fi
-done
-if [ -z "${NBD_DEV}" ]; then
-  echo "Error: no free nbd device found"
-  exit 1
-fi
-
-qemu-nbd --connect="${NBD_DEV}" "${STAGING}/disk.qcow2"
-sleep 1
-partprobe "${NBD_DEV}" 2>/dev/null || true
-sleep 1
+LOOP_DEV=$(losetup --find --show --partscan "${STAGING}/disk.raw")
 
 # Find the root partition (the largest one, typically partition 2)
-ROOT_PART=$(lsblk -ln -o NAME,SIZE "${NBD_DEV}" | tail -n +2 | sort -k2 -h | tail -1 | awk '{print $1}')
-ROOT_DEV="/dev/${ROOT_PART}"
+ROOT_DEV=$(lsblk -ln -o PATH,SIZE "${LOOP_DEV}" | tail -n +2 | sort -k2 -h | tail -1 | awk '{print $1}')
 
+echo "Loop device: ${LOOP_DEV}"
 echo "Root partition: ${ROOT_DEV}"
 
 # Grow the partition and filesystem
-growpart "${NBD_DEV}" 2 || true
+growpart "${LOOP_DEV}" 2 || true
 e2fsck -fy "${ROOT_DEV}" 2>/dev/null || true
 resize2fs "${ROOT_DEV}" 2>/dev/null || xfs_growfs "${ROOT_DEV}" 2>/dev/null || true
 
@@ -153,13 +140,13 @@ umount "${MOUNTPOINT}/proc"
 umount "${MOUNTPOINT}/sys"
 umount "${MOUNTPOINT}/run"
 umount "${MOUNTPOINT}"
-qemu-nbd --disconnect "${NBD_DEV}"
-NBD_DEV=""
+losetup -d "${LOOP_DEV}"
+LOOP_DEV=""
 
 # --- Repackage as Incus VM tarball ---
 echo "Compressing disk image..."
-qemu-img convert -c -f qcow2 -O qcow2 "${STAGING}/disk.qcow2" "${STAGING}/rootfs.img"
-rm -f "${STAGING}/disk.qcow2"
+qemu-img convert -f raw -O qcow2 -c "${STAGING}/disk.raw" "${STAGING}/rootfs.img"
+rm -f "${STAGING}/disk.raw"
 
 echo "Packaging VM image..."
 CREATION_DATE=$(date +%s)
