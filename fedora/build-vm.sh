@@ -72,6 +72,7 @@ qemu-img resize "${STAGING}/disk.qcow2" 10G
 echo "Installing packages and applying base configuration..."
 virt-customize -a "${STAGING}/disk.qcow2" \
   --run-command 'growpart /dev/sda 2 && resize2fs /dev/sda2 || xfs_growfs / || true' \
+  --run-command 'echo "nameserver 8.8.8.8" > /etc/resolv.conf' \
   --install systemd-networkd,dnf5,glibc-langpack-en,bash-completion,git,curl,which,procps-ng,findutils,iproute,iputils,cloud-utils-growpart,e2fsprogs,xfsprogs \
   --run-command 'dnf -y remove glibc-all-langpacks geolite2-city geolite2-country 2>/dev/null; true' \
   --run "${SCRIPT_DIR}/configure-base.sh"
