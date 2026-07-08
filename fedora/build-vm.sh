@@ -4,14 +4,14 @@ set -euo pipefail
 # Build a prebaked Fedora VM image for incus-spawn.
 #
 # Downloads the stock Incus Fedora VM image (which already has the
-# incus-agent, bootloader, and kernel set up), applies incus-spawn
-# base configuration via virt-customize, and repackages as an Incus
-# VM tarball.
+# incus-agent, bootloader, and kernel set up), mounts it via qemu-nbd,
+# installs packages and applies configuration, then repackages as an
+# Incus VM tarball.
 #
 # Usage: ./build-vm.sh <output-dir>
 #
-# Dependencies (Fedora): dnf install libguestfs-tools-c qemu-img jq curl
-# Dependencies (Ubuntu): apt install libguestfs-tools qemu-utils jq curl
+# Dependencies: qemu-utils (qemu-img, qemu-nbd), jq, curl
+# Must run as root (for nbd mount).
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 OUTPUT="${1:?Usage: $0 <output-dir>}"
@@ -21,15 +21,16 @@ IMAGE_SERVER="https://images.linuxcontainers.org"
 
 # --- Dependency check ---
 MISSING=()
-for cmd in virt-customize qemu-img jq curl; do
+for cmd in qemu-img qemu-nbd jq curl; do
   command -v "$cmd" >/dev/null 2>&1 || MISSING+=("$cmd")
 done
 if [ ${#MISSING[@]} -gt 0 ]; then
   echo "Error: missing required tools: ${MISSING[*]}"
-  echo ""
-  echo "Install them with:"
-  echo "  Fedora: dnf install libguestfs-tools-c qemu-img jq curl"
-  echo "  Ubuntu: apt install libguestfs-tools qemu-utils jq curl"
+  exit 1
+fi
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Error: must run as root (need nbd + mount)"
   exit 1
 fi
 
@@ -59,9 +60,25 @@ fi
 DISK_URL="${IMAGE_SERVER}/${DISK_PATH}"
 echo "Found: ${DISK_URL}"
 
-# --- Download and customize ---
+# --- Download ---
 STAGING=$(mktemp -d /tmp/vm-image-XXXXXX)
-trap 'rm -rf "${STAGING}"' EXIT
+MOUNTPOINT=$(mktemp -d /tmp/vm-mount-XXXXXX)
+NBD_DEV=""
+
+cleanup() {
+  set +e
+  if [ -n "${NBD_DEV}" ]; then
+    umount "${MOUNTPOINT}/dev/pts" 2>/dev/null
+    umount "${MOUNTPOINT}/dev" 2>/dev/null
+    umount "${MOUNTPOINT}/proc" 2>/dev/null
+    umount "${MOUNTPOINT}/sys" 2>/dev/null
+    umount "${MOUNTPOINT}/run" 2>/dev/null
+    umount "${MOUNTPOINT}" 2>/dev/null
+    qemu-nbd --disconnect "${NBD_DEV}" 2>/dev/null
+  fi
+  rm -rf "${STAGING}" "${MOUNTPOINT}"
+}
+trap cleanup EXIT
 
 echo "Downloading stock VM disk..."
 curl -fL --progress-bar -o "${STAGING}/disk.qcow2" "${DISK_URL}"
@@ -69,12 +86,75 @@ curl -fL --progress-bar -o "${STAGING}/disk.qcow2" "${DISK_URL}"
 echo "Expanding disk to 10G..."
 qemu-img resize "${STAGING}/disk.qcow2" 10G
 
-echo "Installing packages and applying base configuration..."
-virt-customize -a "${STAGING}/disk.qcow2" \
-  --run-command 'growpart /dev/sda 2 && resize2fs /dev/sda2 || xfs_growfs / || true' \
-  --install systemd-networkd,dnf5,glibc-langpack-en,bash-completion,git,curl,which,procps-ng,findutils,iproute,iputils,cloud-utils-growpart,e2fsprogs,xfsprogs \
-  --run-command 'dnf -y remove glibc-all-langpacks geolite2-city geolite2-country 2>/dev/null; true' \
-  --run "${SCRIPT_DIR}/configure-base.sh"
+# --- Mount via qemu-nbd ---
+echo "Mounting disk image..."
+modprobe nbd max_part=8 2>/dev/null || true
+
+# Find a free nbd device
+for dev in /dev/nbd{0..7}; do
+  if ! lsblk "${dev}" &>/dev/null; then
+    NBD_DEV="${dev}"
+    break
+  fi
+done
+if [ -z "${NBD_DEV}" ]; then
+  echo "Error: no free nbd device found"
+  exit 1
+fi
+
+qemu-nbd --connect="${NBD_DEV}" "${STAGING}/disk.qcow2"
+sleep 1
+partprobe "${NBD_DEV}" 2>/dev/null || true
+sleep 1
+
+# Find the root partition (the largest one, typically partition 2)
+ROOT_PART=$(lsblk -ln -o NAME,SIZE "${NBD_DEV}" | tail -n +2 | sort -k2 -h | tail -1 | awk '{print $1}')
+ROOT_DEV="/dev/${ROOT_PART}"
+
+echo "Root partition: ${ROOT_DEV}"
+
+# Grow the partition and filesystem
+growpart "${NBD_DEV}" 2 || true
+e2fsck -fy "${ROOT_DEV}" 2>/dev/null || true
+resize2fs "${ROOT_DEV}" 2>/dev/null || xfs_growfs "${ROOT_DEV}" 2>/dev/null || true
+
+mount "${ROOT_DEV}" "${MOUNTPOINT}"
+
+# --- Install packages via chroot ---
+echo "Installing packages..."
+
+# Bind-mount host resources for chroot
+mount --bind /dev "${MOUNTPOINT}/dev"
+mount --bind /dev/pts "${MOUNTPOINT}/dev/pts"
+mount -t proc proc "${MOUNTPOINT}/proc"
+mount -t sysfs sysfs "${MOUNTPOINT}/sys"
+mount -t tmpfs tmpfs "${MOUNTPOINT}/run"
+
+# Use host DNS inside chroot
+cp /etc/resolv.conf "${MOUNTPOINT}/etc/resolv.conf" 2>/dev/null || \
+  echo "nameserver 8.8.8.8" > "${MOUNTPOINT}/etc/resolv.conf"
+
+PACKAGES="systemd-networkd dnf5 glibc-langpack-en bash-completion git curl which procps-ng findutils iproute iputils cloud-utils-growpart e2fsprogs xfsprogs"
+
+chroot "${MOUNTPOINT}" /bin/bash -c "dnf -y install ${PACKAGES}"
+chroot "${MOUNTPOINT}" /bin/bash -c "dnf -y remove glibc-all-langpacks geolite2-city geolite2-country 2>/dev/null; true"
+
+# --- Apply base configuration ---
+echo "Applying base configuration..."
+cp "${SCRIPT_DIR}/configure-base.sh" "${MOUNTPOINT}/tmp/configure-base.sh"
+chroot "${MOUNTPOINT}" /bin/bash /tmp/configure-base.sh
+rm -f "${MOUNTPOINT}/tmp/configure-base.sh"
+
+# --- Unmount ---
+echo "Unmounting..."
+umount "${MOUNTPOINT}/dev/pts"
+umount "${MOUNTPOINT}/dev"
+umount "${MOUNTPOINT}/proc"
+umount "${MOUNTPOINT}/sys"
+umount "${MOUNTPOINT}/run"
+umount "${MOUNTPOINT}"
+qemu-nbd --disconnect "${NBD_DEV}"
+NBD_DEV=""
 
 # --- Repackage as Incus VM tarball ---
 echo "Compressing disk image..."
