@@ -45,7 +45,7 @@ jobs:
       - name: Install VM build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y libguestfs-tools qemu-utils jq curl linux-image-generic
+          sudo apt-get install -y libguestfs-tools qemu-utils jq curl linux-image-generic dhcpcd-base
           # passt fails on GitHub runners (even as root); hide it so
           # libguestfs falls back to QEMU's built-in slirp networking
           sudo dpkg -r --force-depends passt || true
