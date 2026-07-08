@@ -117,8 +117,10 @@ mount -t proc proc "${MOUNTPOINT}/proc"
 mount -t sysfs sysfs "${MOUNTPOINT}/sys"
 mount -t tmpfs tmpfs "${MOUNTPOINT}/run"
 
-# Provide DNS for the chroot — the host's resolv.conf may point at
-# 127.0.0.53 (systemd-resolved stub) which is unreachable here.
+# Provide DNS for the chroot. The image's /etc/resolv.conf is typically
+# a symlink to /run/systemd/resolve/stub-resolv.conf — remove it first
+# so we create a real file instead of writing through the symlink.
+rm -f "${MOUNTPOINT}/etc/resolv.conf"
 echo "nameserver 8.8.8.8" > "${MOUNTPOINT}/etc/resolv.conf"
 
 PACKAGES="systemd-networkd dnf5 glibc-langpack-en bash-completion git curl which procps-ng findutils iproute iputils cloud-utils-growpart e2fsprogs xfsprogs"
