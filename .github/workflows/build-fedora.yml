@@ -54,6 +54,9 @@ jobs:
         env:
           LIBGUESTFS_BACKEND: direct
         run: |
+          # QEMU slirp is IPv4-only; ensure the host has an IPv4 nameserver
+          # so slirp's DNS forwarder can forward queries
+          echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf > /dev/null
           sudo -E fedora/build-vm.sh output
 
       - name: Upload container artifact
