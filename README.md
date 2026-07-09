@@ -10,7 +10,7 @@ reproducible.
 
 The build produces **two image formats** from a single rootfs:
 - **Container image** (`.tar.xz`): rootfs tarball for Incus containers
-- **VM image** (`-vm.tar.xz`): bootable disk image (XFS root, UEFI/GRUB2) for Incus VMs
+- **VM image** (`-vm.tar.xz`): bootable disk image for Incus VMs, based on the stock Incus Fedora image
 
 ## What's baked in
 
@@ -61,17 +61,18 @@ harmful in a container are masked — `systemd-homed` (+ firstboot), the
 under a `rootfs/` subdirectory, compressed as `.tar.xz`, with a companion
 `.sha256`.
 
-**VM packaging.** On top of the common rootfs, the VM image adds `kernel-core`,
-`dracut`, and `grub2-efi` (architecture-specific). The rootfs is written to a
-2 GB GPT disk with a 256 MB EFI System Partition (FAT32) and an XFS root
-partition. GRUB is installed with serial console support (`console=ttyS0`).
-The disk is converted to qcow2 and packaged as an Incus unified tarball
+**VM packaging.** The VM image starts from the stock Incus Fedora VM image
+(which already has the kernel, bootloader, and `incus-agent` set up). The
+qcow2 disk is converted to raw, mounted via `losetup`, and customized in a
+chroot with the same packages and configuration as the container image (see
+[`fedora/build-vm.sh`](fedora/build-vm.sh)). The modified disk is converted
+back to a compressed qcow2 and packaged as an Incus unified tarball
 (`metadata.yaml` + `rootfs.img`).
 
 ## Building locally
 
-Requires a container runtime with privileges (privileged is needed for
-chroot, `dnf --installroot`, and loop device setup for the VM image):
+**Container image** — requires a container runtime with `--privileged`
+(for chroot and `dnf --installroot`):
 
 ```bash
 mkdir -p output && podman run --rm --privileged \
@@ -81,7 +82,14 @@ mkdir -p output && podman run --rm --privileged \
   fedora:44 bash /build/fedora/build.sh
 ```
 
-`output/` must exist before the run — hence the leading `mkdir -p`.
+**VM image** — runs directly on the host (needs root for `losetup` + `mount`):
+
+```bash
+sudo fedora/build-vm.sh output
+```
+
+Requires `qemu-img`, `jq`, `curl`, `growpart`, and `e2fsprogs`/`xfsprogs`.
+
 Output files:
 - `output/fedora-44-<arch>.tar.xz` — container image (+ `.sha256`)
 - `output/fedora-44-<arch>-vm.tar.xz` — VM image (+ `.sha256`)
@@ -89,8 +97,9 @@ Output files:
 ## CI
 
 [`.github/workflows/build-fedora.yml`](.github/workflows/build-fedora.yml)
-builds both `x86_64` (on a regular instance) and `aarch64` (on an arm instance)
-via the same `podman` invocation.
+builds both `x86_64` (on a regular instance) and `aarch64` (on an arm instance).
+The container image is built in podman; the VM image is built directly on the
+runner via `losetup` + chroot.
 
 Triggers:
 
