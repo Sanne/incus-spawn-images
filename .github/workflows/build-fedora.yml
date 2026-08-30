@@ -123,3 +123,55 @@ jobs:
             release/fedora-${{ env.RELEASE }}-x86_64-vm.tar.xz
             release/fedora-${{ env.RELEASE }}-aarch64-vm.tar.xz
             release/SHA256SUMS
+
+      # Push model: tell incus-spawn a new base image is available, carrying the tag
+      # and checksums we just computed so it doesn't have to poll or re-parse them.
+      # Requires a repo secret INCUS_SPAWN_DISPATCH_TOKEN — a token with write access
+      # to Sanne/incus-spawn (the default GITHUB_TOKEN is scoped to this repo only and
+      # cannot dispatch cross-repo). Missing token → the notification is skipped, not
+      # a release failure.
+      - name: Notify incus-spawn of new base image
+        env:
+          DISPATCH_TOKEN: ${{ secrets.INCUS_SPAWN_DISPATCH_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${DISPATCH_TOKEN:-}" ]]; then
+            echo "INCUS_SPAWN_DISPATCH_TOKEN not set; skipping cross-repo notification."
+            exit 0
+          fi
+
+          sha_for() { awk -v f="$1" '$2 == f { print $1 }' release/SHA256SUMS; }
+          C_X86="$(sha_for "fedora-${RELEASE}-x86_64.tar.xz")"
+          C_ARM="$(sha_for "fedora-${RELEASE}-aarch64.tar.xz")"
+          V_X86="$(sha_for "fedora-${RELEASE}-x86_64-vm.tar.xz")"
+          V_ARM="$(sha_for "fedora-${RELEASE}-aarch64-vm.tar.xz")"
+
+          for pair in "tag:$TAG" \
+                      "container/x86_64:$C_X86" "container/aarch64:$C_ARM" \
+                      "vm/x86_64:$V_X86" "vm/aarch64:$V_ARM"; do
+            val="${pair#*:}"
+            if [[ -z "$val" ]]; then
+              echo "Missing ${pair%%:*}; not notifying incus-spawn." >&2
+              exit 1
+            fi
+          done
+
+          payload="$(jq -n \
+            --arg tag "$TAG" \
+            --arg cx "$C_X86" --arg ca "$C_ARM" \
+            --arg vx "$V_X86" --arg va "$V_ARM" \
+            '{event_type: "base-image-released",
+              client_payload: {
+                tag: $tag,
+                sha256: {
+                  container: {x86_64: $cx, aarch64: $ca},
+                  vm: {x86_64: $vx, aarch64: $va}
+                }
+              }}')"
+
+          GH_TOKEN="$DISPATCH_TOKEN" gh api \
+            --method POST \
+            repos/Sanne/incus-spawn/dispatches \
+            --input - <<<"$payload"
+          echo "Notified Sanne/incus-spawn of base-image-released $TAG"
