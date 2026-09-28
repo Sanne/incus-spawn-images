@@ -105,7 +105,7 @@ Triggers:
 
 - **Push** to `main` touching `fedora/**` or the workflow — builds artifacts
   only (no release).
-- **Monthly schedule** (15th, 03:17 UTC) — rebuilds for security updates and
+- **Scheduled** (1st, 11th, 21st, 03:17 UTC) — rebuilds for security updates and
   publishes a release tagged `fedora-44-<YYYYMMDD>`.
 - **Manual dispatch** — optionally pass a `version` tag (e.g. `fedora-44-v2`)
   and publishes a release.
@@ -199,7 +199,7 @@ To publish a new base image release:
    `isx build tpl-minimal` and `isx build tpl-minimal --type vm` to verify both
    image types import and boot correctly.
 
-Monthly scheduled builds (15th, 03:17 UTC) automatically create a release for
+Scheduled builds (1st, 11th, 21st, 03:17 UTC) automatically create a release for
 security updates. Pushes to `main` touching `fedora/**` build artifacts but
 don't release — use manual dispatch to publish those changes.
 
