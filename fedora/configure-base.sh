@@ -38,6 +38,26 @@ systemctl mask \
     systemd-firstboot.service \
     systemd-homed-firstboot.service
 
+# Pin SELinux off. These images deliberately ship without an SELinux policy (the
+# stock Incus Fedora image has none), so nothing on the filesystem is ever labelled.
+# A policy can still arrive later as a transitive dependency of a package a template
+# installs -- `perl` pulls in selinux-policy-targeted, which writes
+# /etc/selinux/config with SELINUX=enforcing. In a container that file is inert, but
+# a VM then boots enforcing over a completely unlabelled root: the incus-agent lands
+# in init_t, is denied `listen` on its vsock_socket, and never starts, so the VM is
+# unreachable and `isx shell` just times out. Creating the file here wins, because
+# the policy package does not own this path and so never overwrites it.
+# Relabelling is NOT an alternative fix: even with every context restored, the
+# targeted policy has no rule letting the agent listen on vsock.
+# See Sanne/incus-spawn#842.
+mkdir -p /etc/selinux
+cat > /etc/selinux/config << 'SELINUXEOF'
+# incus-spawn: these images ship without a labelled filesystem, so SELinux must
+# stay off even if a package install later pulls in an SELinux policy.
+SELINUX=disabled
+SELINUXTYPE=targeted
+SELINUXEOF
+
 # Mask static device node permissions — in unprivileged containers, /dev/net/tun
 # and /dev/fuse are injected by Incus (host-managed) and can't be fchmod'd from
 # inside the user namespace.
