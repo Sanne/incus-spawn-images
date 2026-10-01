@@ -16,6 +16,12 @@ on:
       - 'fedora/**'
       - '.github/workflows/build-fedora.yml'
 
+# Serialize releases so a second run for the same date-based tag cannot
+# overwrite the first run's assets after its dispatch has already gone out.
+concurrency:
+  group: release-fedora
+  cancel-in-progress: false
+
 env:
   RELEASE: '44'
 
@@ -74,6 +80,25 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Determine version tag
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "tag=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=fedora-${{ env.RELEASE }}-$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fail if release already exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists — refusing to overwrite assets (checksums would diverge from any earlier dispatch)."
+            exit 1
+          fi
+
       - uses: actions/download-artifact@v7
         with:
           path: artifacts
@@ -93,15 +118,6 @@ jobs:
             echo "$(cat "$f")  ${basename}" >> SHA256SUMS
           done
           cat SHA256SUMS
-
-      - name: Determine version tag
-        id: version
-        run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "tag=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=fedora-${{ env.RELEASE }}-$(date +%Y%m%d)" >> "$GITHUB_OUTPUT"
-          fi
 
       - name: Create release
         uses: softprops/action-gh-release@v3
