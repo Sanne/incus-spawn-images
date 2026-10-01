@@ -45,8 +45,11 @@ systemctl mask \
 # /etc/selinux/config with SELINUX=enforcing. In a container that file is inert, but
 # a VM then boots enforcing over a completely unlabelled root: the incus-agent lands
 # in init_t, is denied `listen` on its vsock_socket, and never starts, so the VM is
-# unreachable and `isx shell` just times out. Creating the file here wins, because
-# the policy package does not own this path and so never overwrites it.
+# unreachable and `isx shell` just times out. Creating the file here wins, but only
+# narrowly: selinux-policy does own this path, as %config(noreplace) %ghost, so rpm
+# itself never writes it; its %post writes the enforcing default only when
+# `[ ! -s /etc/selinux/config ]`. The file must therefore exist and never be empty --
+# truncating it would let the next policy install reset it to enforcing.
 # Relabelling is NOT an alternative fix: even with every context restored, the
 # targeted policy has no rule letting the agent listen on vsock.
 # See Sanne/incus-spawn#842.

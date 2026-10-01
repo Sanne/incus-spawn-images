@@ -134,6 +134,12 @@ cp "${SCRIPT_DIR}/configure-base.sh" "${MOUNTPOINT}/tmp/configure-base.sh"
 chroot "${MOUNTPOINT}" /bin/bash /tmp/configure-base.sh
 rm -f "${MOUNTPOINT}/tmp/configure-base.sh"
 
+# Fail loudly if SELinux is not pinned off (see configure-base.sh, Sanne/incus-spawn#842).
+if ! grep -qx 'SELINUX=disabled' "${MOUNTPOINT}/etc/selinux/config"; then
+  echo "Error: /etc/selinux/config in the image does not set SELINUX=disabled"
+  exit 1
+fi
+
 # --- Unmount ---
 echo "Unmounting..."
 umount "${MOUNTPOINT}/dev/pts"
