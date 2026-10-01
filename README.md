@@ -57,14 +57,15 @@ harmful in a container are masked — `systemd-homed` (+ firstboot), the
 `systemd-firstboot`, `unbound-anchor.timer`, `fstrim.timer`, and
 `selinux-autorelabel-mark`.
 
-**SELinux is pinned off.** These images ship without an SELinux policy (the stock
-Incus Fedora image has none), so nothing on the filesystem is ever labelled.
-`configure-base.sh` writes `/etc/selinux/config` with `SELINUX=disabled` so that
-a policy arriving later as a transitive dependency — `perl` pulls in
-`selinux-policy-targeted` — cannot flip the guest to enforcing. Without this a VM
-boots enforcing over an unlabelled root, the `incus-agent` is denied `listen` on
-its vsock socket, and the VM is unreachable. Relabelling does not help: the
-targeted policy has no rule permitting the agent's vsock listen. See
+**SELinux is pinned off in practice.** These images ship without an SELinux
+policy, so nothing is labelled. `configure-base.sh` writes `/etc/selinux/config`
+with `SELINUX=disabled` so a policy arriving later as a transitive dependency —
+`perl` pulls in `selinux-policy-targeted` — cannot flip a VM to enforcing, where
+the `incus-agent` is denied `listen` on its vsock socket and the VM is unreachable
+(relabelling does not help). Caveat: without `selinux=0` on the kernel command
+line SELinux stays enabled in the kernel with no policy loaded, which Fedora calls
+the unsafe way to disable it (see its config template and
+`selinux-check-proper-disable.service`). See
 [Sanne/incus-spawn#842](https://github.com/Sanne/incus-spawn/issues/842).
 
 **Container packaging.** Incus unified tarball: `metadata.yaml` plus the rootfs
