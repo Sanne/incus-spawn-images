@@ -39,7 +39,11 @@ bash-completion.
 **Networking.** `systemd-networkd` is enabled for static IP assignment
 (configured per-branch by `incus-spawn`). A connectivity watchdog
 (`isx-network-watchdog.timer`) monitors the expected IP/gateway every 30s and
-restarts `systemd-networkd` on mismatch (recovers from host sleep/wake).
+restarts `systemd-networkd` on mismatch (recovers from host sleep/wake). It looks
+for the address on any link, since a VM's NIC is `enp5s0`, not `eth0`, and uses
+only tools the container image ships (it has no `awk`).
+`tests/test-network-watchdog.sh` runs it against stubbed `ip`/`ping` with
+nothing else on `PATH`.
 `nsswitch.conf` has the mDNS `resolve` entry stripped so `.local` names go to
 `incus-spawn`'s gateway dnsmasq instead of multicast DNS. `/etc/resolv.conf` is
 removed; `incus-spawn`'s `BuildCommand` writes the real one at container start.
@@ -123,6 +127,11 @@ Triggers:
 
 Releases attach container and VM tarballs for both architectures, plus a
 combined `SHA256SUMS`.
+
+[`.github/workflows/test.yml`](.github/workflows/test.yml) (`Test`) runs on
+every pull request and push to `main`. It runs `tests/test-network-watchdog.sh`,
+which checks the network watchdog against stubbed tools and against the
+runner's real `ip`. It needs no root and builds no image.
 
 ## Testing locally with incus-spawn
 
