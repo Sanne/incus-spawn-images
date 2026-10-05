@@ -1,0 +1,22 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Network watchdog
+        run: tests/test-network-watchdog.sh
+        env:
+          # The runner has iproute2 and a loopback address: fail rather than skip
+          # the checks against the real `ip`.
+          REQUIRE_REAL_IP: 1

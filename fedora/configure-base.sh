@@ -80,7 +80,6 @@ echo "Installing network watchdog..."
 mkdir -p /etc/systemd/system
 cat > /usr/local/bin/isx-network-watchdog << 'WDEOF'
 #!/bin/bash
-IFACE=eth0
 NETWORK_FILE=/etc/systemd/network/10-eth0.network
 
 EXPECTED_IP=$(grep '^Address=' "$NETWORK_FILE" 2>/dev/null | head -1 | cut -d= -f2 | cut -d/ -f1)
@@ -88,10 +87,14 @@ GATEWAY=$(grep '^Gateway=' "$NETWORK_FILE" 2>/dev/null | head -1 | cut -d= -f2)
 
 [ -z "$EXPECTED_IP" ] || [ -z "$GATEWAY" ] && exit 0
 
-CURRENT_IP=$(ip -4 -o addr show "$IFACE" 2>/dev/null | awk '{print $4}' | cut -d/ -f1)
-
-if [ "$CURRENT_IP" != "$EXPECTED_IP" ]; then
-    logger -t isx-watchdog "IP mismatch: expected=$EXPECTED_IP current=$CURRENT_IP, restarting networkd"
+# Look on every link, not by name: a container's NIC is eth0, but a VM's keeps its
+# predictable name (enp5s0), and isx matches the VM's .network file by MAC instead.
+# `to <address>` matches that exact address. Only ip does the matching: the container
+# image has no awk, and an empty read would restart networkd on every run.
+if [ -z "$(ip -4 -o addr show to "$EXPECTED_IP" 2>/dev/null)" ]; then
+    CURRENT=$(ip -4 -br addr show scope global 2>/dev/null | tr -s ' \n' ' ')
+    CURRENT=${CURRENT% }
+    logger -t isx-watchdog "IP mismatch: expected=$EXPECTED_IP current=$CURRENT, restarting networkd"
     systemctl restart systemd-networkd
     exit 0
 fi
