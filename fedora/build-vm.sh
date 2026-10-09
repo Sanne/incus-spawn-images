@@ -107,6 +107,14 @@ resize2fs "${ROOT_DEV}" 2>/dev/null || xfs_growfs "${ROOT_DEV}" 2>/dev/null || t
 
 mount "${ROOT_DEV}" "${MOUNTPOINT}"
 
+# Point the root that kernel-install gives later kernels at the root filesystem,
+# not at the loop device the stock image was built on (Sanne/incus-spawn#1217).
+# Done before any chroot step, so a kernel a package pulls in gets a bootable entry.
+# -p reads the superblock rather than blkid's cache, which may describe whatever
+# was on a reused loop device before.
+ROOT_UUID=$(blkid -p -s UUID -o value "${ROOT_DEV}")
+bash "${SCRIPT_DIR}/kernel-cmdline.sh" "${MOUNTPOINT}/etc/kernel/cmdline" "${ROOT_UUID}"
+
 # --- Install packages via chroot ---
 echo "Installing packages..."
 
@@ -139,6 +147,22 @@ if ! grep -qx 'SELINUX=disabled' "${MOUNTPOINT}/etc/selinux/config"; then
   echo "Error: /etc/selinux/config in the image does not set SELINUX=disabled"
   exit 1
 fi
+
+# Fail loudly if a chroot step undid that, or left the build host's loop device
+# anywhere the guest's boot reads it.
+if [ -e "${MOUNTPOINT}/etc/kernel/cmdline" ] \
+    && ! grep -Eq "(^|[[:space:]])root=UUID=${ROOT_UUID}([[:space:]]|$)" "${MOUNTPOINT}/etc/kernel/cmdline"; then
+  echo "Error: /etc/kernel/cmdline in the image does not set root=UUID=${ROOT_UUID}"
+  exit 1
+fi
+LOOP_REFS=$(cd "${MOUNTPOINT}" && grep -rlsE '/dev/loop[0-9]' \
+  etc/kernel/cmdline etc/default/grub etc/fstab boot/loader/entries boot/grub2/grubenv || true)
+if [ -n "${LOOP_REFS}" ]; then
+  echo "Error: the image's boot configuration names a loop device in:"
+  echo "${LOOP_REFS}"
+  exit 1
+fi
+echo "Kernel command line: $(cat "${MOUNTPOINT}/etc/kernel/cmdline" 2>/dev/null || echo '(none)')"
 
 # --- Unmount ---
 echo "Unmounting..."

@@ -84,6 +84,18 @@ chroot with the same packages and configuration as the container image (see
 back to a compressed qcow2 and packaged as an Incus unified tarball
 (`metadata.yaml` + `rootfs.img`).
 
+**The VM kernel command line names the root by UUID.** The stock image ships
+`/etc/kernel/cmdline` with the loop device it was built on
+(`root=/dev/loop0p2`). Its own kernel boots anyway, because its boot entry
+uses `$kernelopts`, but `kernel-install` writes the entry for every kernel
+installed later from that file, so a guest whose `dnf upgrade` brought a new
+kernel waited forever for the loop device on its next boot.
+[`fedora/kernel-cmdline.sh`](fedora/kernel-cmdline.sh) rewrites the root to
+`root=UUID=<root filesystem>` before any package is installed, keeping the
+other options, and the build fails if a later step undid it or left a loop
+device anywhere in the image's boot configuration. See
+[Sanne/incus-spawn#1217](https://github.com/Sanne/incus-spawn/issues/1217).
+
 ## Building locally
 
 **Container image** — requires a container runtime with `--privileged`
