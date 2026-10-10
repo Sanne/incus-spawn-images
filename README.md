@@ -96,6 +96,27 @@ other options, and the build fails if a later step undid it or left a loop
 device anywhere in the image's boot configuration. See
 [Sanne/incus-spawn#1217](https://github.com/Sanne/incus-spawn/issues/1217).
 
+**The VM kernel boots with `loglevel=5`, and `/etc/kernel/cmdline` decides it
+for every kernel.** The stock image writes the kernel's informational messages
+to `console=tty1 console=ttyS0`, about 125 KB per boot through an emulated
+serial port and framebuffer before userspace starts. `kernel-cmdline.sh` adds
+`loglevel=5` unless the line sets a level already. The console then shows only
+messages more severe than notices: warnings (`WARN_ON` backtraces included),
+errors and panics, about 300 bytes on a normal boot. systemd's per-unit status
+lines are not kernel messages and still print, the ones isx quotes when an
+`incus-agent` fails to start included. `quiet` would also drop the kernel's
+warnings (it caps the console at `loglevel=4`) and turn systemd's status lines
+off until a unit fails or stalls. SELinux avc denials are notices and no longer
+reach the console; the image pins SELinux off. The stock kernel's boot entry
+reads `$kernelopts`, filled in from a fallback in the EFI partition's
+`grub.cfg`, so [`fedora/boot-entries.sh`](fedora/boot-entries.sh) writes the
+contents of `/etc/kernel/cmdline` into it, and every other entry, after the
+package installs, as `kernel-install` does for every later kernel. The build
+fails unless every boot
+entry boots with exactly what that file says, and it names the root by UUID and
+sets a log level. See
+[Sanne/incus-spawn#1238](https://github.com/Sanne/incus-spawn/issues/1238).
+
 ## Building locally
 
 **Container image** — requires a container runtime with `--privileged`
