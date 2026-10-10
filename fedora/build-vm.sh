@@ -142,6 +142,11 @@ cp "${SCRIPT_DIR}/configure-base.sh" "${MOUNTPOINT}/tmp/configure-base.sh"
 chroot "${MOUNTPOINT}" /bin/bash /tmp/configure-base.sh
 rm -f "${MOUNTPOINT}/tmp/configure-base.sh"
 
+# The image's own kernel boots with the options in /etc/kernel/cmdline too, as
+# every later kernel does (Sanne/incus-spawn#1238). After the chroot steps, so it
+# copies the file as it ships.
+bash "${SCRIPT_DIR}/boot-entries.sh" "${MOUNTPOINT}"
+
 # Fail loudly if SELinux is not pinned off (see configure-base.sh, Sanne/incus-spawn#842).
 if ! grep -qx 'SELINUX=disabled' "${MOUNTPOINT}/etc/selinux/config"; then
   echo "Error: /etc/selinux/config in the image does not set SELINUX=disabled"
@@ -149,12 +154,36 @@ if ! grep -qx 'SELINUX=disabled' "${MOUNTPOINT}/etc/selinux/config"; then
 fi
 
 # Fail loudly if a chroot step undid that, or left the build host's loop device
-# anywhere the guest's boot reads it.
-if [ -e "${MOUNTPOINT}/etc/kernel/cmdline" ] \
-    && ! grep -Eq "(^|[[:space:]])root=UUID=${ROOT_UUID}([[:space:]]|$)" "${MOUNTPOINT}/etc/kernel/cmdline"; then
+# anywhere the guest's boot reads it. Every kernel's options come from
+# /etc/kernel/cmdline, so it must exist, name the root and set a log level, and
+# every boot entry must boot with exactly what it says.
+CMDLINE="${MOUNTPOINT}/etc/kernel/cmdline"
+if [ ! -s "${CMDLINE}" ]; then
+  echo "Error: the image has no /etc/kernel/cmdline"
+  exit 1
+fi
+if ! grep -Eq "(^|[[:space:]])root=UUID=${ROOT_UUID}([[:space:]]|$)" "${CMDLINE}"; then
   echo "Error: /etc/kernel/cmdline in the image does not set root=UUID=${ROOT_UUID}"
   exit 1
 fi
+if ! grep -Eq '(^|[[:space:]])(loglevel=|quiet([[:space:]]|$)|debug([[:space:]]|$))' "${CMDLINE}"; then
+  echo "Error: /etc/kernel/cmdline in the image sets no kernel log level"
+  exit 1
+fi
+read -r -d '' -a WANT_OPTIONS < "${CMDLINE}" || true
+ENTRIES=("${MOUNTPOINT}"/boot/loader/entries/*.conf)
+if [ ! -e "${ENTRIES[0]}" ]; then
+  echo "Error: the image has no boot entries in /boot/loader/entries"
+  exit 1
+fi
+for entry in "${ENTRIES[@]}"; do
+  # BLS joins every options line of an entry
+  read -r -a GOT_OPTIONS <<< "$(sed -n 's/^options[[:space:]]*//p' "${entry}" | tr '\n' ' ')"
+  if [ "${GOT_OPTIONS[*]}" != "${WANT_OPTIONS[*]}" ]; then
+    echo "Error: ${entry#"${MOUNTPOINT}"} boots with '${GOT_OPTIONS[*]}', not /etc/kernel/cmdline's '${WANT_OPTIONS[*]}'"
+    exit 1
+  fi
+done
 LOOP_REFS=$(cd "${MOUNTPOINT}" && grep -rlsE '/dev/loop[0-9]' \
   etc/kernel/cmdline etc/default/grub etc/fstab boot/loader/entries boot/grub2/grubenv || true)
 if [ -n "${LOOP_REFS}" ]; then

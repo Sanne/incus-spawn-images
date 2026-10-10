@@ -23,3 +23,6 @@ jobs:
 
       - name: VM kernel command line
         run: tests/test-kernel-cmdline.sh
+
+      - name: VM boot entries
+        run: tests/test-boot-entries.sh
