@@ -36,7 +36,11 @@ systemctl mask \
     fstrim.timer \
     selinux-autorelabel-mark.service \
     systemd-firstboot.service \
-    systemd-homed-firstboot.service
+    systemd-homed-firstboot.service \
+    dnf-makecache.timer
+# dnf-makecache.timer refreshes package metadata in the background about an hour
+# after boot, through the proxy, for a box that may never run dnf; dnf refreshes
+# what it needs when it does run (Sanne/incus-spawn#1238).
 
 # Pin SELinux off. These images deliberately ship without an SELinux policy (the
 # stock Incus Fedora image has none), so nothing on the filesystem is ever labelled.
