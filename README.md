@@ -58,8 +58,10 @@ user namespace).
 harmful in a container are masked — `systemd-homed` (+ firstboot), the
 `systemd-pcrlock-*` and `systemd-tpm2-clear` TPM units, time sync
 (`timesyncd`, `time-wait-sync`), `systemd-boot-*` and `systemd-sysupdate*`,
-`systemd-firstboot`, `unbound-anchor.timer`, `fstrim.timer`, and
-`selinux-autorelabel-mark`.
+`systemd-firstboot`, `unbound-anchor.timer`, `fstrim.timer`,
+`selinux-autorelabel-mark`, and `dnf-makecache.timer`, which would refresh
+package metadata in the background through the isx proxy in boxes that may
+never run dnf.
 
 **SELinux is pinned off in practice.** These images ship without an SELinux
 policy, so nothing is labelled. `configure-base.sh` writes `/etc/selinux/config`
