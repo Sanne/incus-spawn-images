@@ -93,7 +93,7 @@ jobs:
 
   release:
     needs: [build, build-vm-direct]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     permissions:
       contents: write
