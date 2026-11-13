@@ -236,7 +236,7 @@ The line is everything before the date. isx orders tags only within a line, by
 date and then `-<n>`, and follows only the stable line by itself: an unpinned
 build and the automated bump in incus-spawn never move to another Fedora or to
 a channel, which is pinned by hand (`isx update-base <tag>`). A channel's release
-does not become the repository's "Latest" and does not notify incus-spawn. The
+does not become the repository's "Latest". The
 one typed tag ever published, `fedora-45-v1`, reads as the stable line built on
 2026-11-04.
 
@@ -342,10 +342,11 @@ To publish a new base image release:
 2. **Wait for CI** — the workflow builds both `x86_64` and `aarch64` images and
    creates a GitHub release with the tarballs and `SHA256SUMS.v2`.
 
-3. **Update `incus-spawn`** — the release notifies `incus-spawn`, whose
-   `update-base-image.yml` opens a PR bumping `common/src/main/resources/images/minimal.yaml`
-   (tag and checksums; the VM image's are `-vm-direct`'s from `SHA256SUMS.v2`).
-   Check every checksum in it against the release before merging:
+3. **Update `incus-spawn`** — its upstream watch (`upstream-watch.yml`) polls
+   this repository's releases every six hours and opens a PR bumping
+   `common/src/main/resources/images/minimal.yaml` to the newest stable release
+   (tag and checksums, taken from `SHA256SUMS.v2`). Its `upstream-verify` check
+   compares every checksum against the release; to repeat it by hand:
 
    ```bash
    gh release download <tag> -R Sanne/incus-spawn-images -p SHA256SUMS.v2 -O -
