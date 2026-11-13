@@ -219,18 +219,40 @@ Triggers:
   only (no release).
 - **Scheduled** (1st, 11th, 21st, 03:17 UTC) — rebuilds for security updates and
   publishes a release tagged `fedora-45-<YYYYMMDD>`.
-- **Manual dispatch** — optionally pass a `version` tag (e.g. `fedora-45-v1`)
-  and publishes a release.
+- **Manual dispatch** — publishes a release, on the stable line or, with a
+  `channel` (lower-case letters, e.g. `next`), on that channel.
+
+Every tag is generated, never typed
+([`release-tag.sh`](.github/scripts/release-tag.sh)):
+
+```
+fedora-<release>[-<channel>]-<YYYYMMDD>[-<n>]
+fedora-45-20261111         stable line
+fedora-45-20261111-2       stable line, second release that day
+fedora-45-next-20261120    the "next" channel of Fedora 45
+```
+
+The line is everything before the date. isx orders tags only within a line, by
+date and then `-<n>`, and follows only the stable line by itself: an unpinned
+build and the automated bump in incus-spawn never move to another Fedora or to
+a channel, which is pinned by hand (`isx update-base <tag>`). A channel's release
+does not become the repository's "Latest" and does not notify incus-spawn. The
+one typed tag ever published, `fedora-45-v1`, reads as the stable line built on
+2026-11-04.
+
+**Do not publish a channel release yet.** isx releases before
+Sanne/incus-spawn#2194 take the first release GitHub lists as the newest, so an
+unpinned build there would move onto a channel published last. Publish one only
+once the isx releases people run follow the built-in's line.
 
 A release never replaces the assets of a tag that already exists: incus-spawn
 pins their checksums. A later release on the same day, or a re-run, is tagged
-`fedora-45-<YYYYMMDD>-2`, `-3` and so on, and a requested `version` that exists
-fails the release ([`release-tag.sh`](.github/scripts/release-tag.sh)).
+`fedora-45-<YYYYMMDD>-2`, `-3` and so on.
 A run that fails after creating its tag, in "Create release", leaves the tag
 behind, and possibly a draft release (assets are uploaded before it is
-published): delete both by hand before running that `version` again, or it
-fails as already existing. Never delete a published release, which isx may
-already have pinned: release under a new `version` instead.
+published): delete both by hand. They do not block a re-run, which takes the
+next number of that day. Never delete a published release, which
+isx may already have pinned.
 
 Releases attach the container and VM tarballs for both architectures, plus
 `SHA256SUMS.v2` (all four). The release job checks every line of it against the
@@ -310,11 +332,11 @@ To publish a new base image release:
    Base Image → Run workflow) or the CLI:
 
    ```bash
-   # Auto-generated date tag (fedora-45-YYYYMMDD, then -2, -3 on the same day):
+   # The stable line (fedora-45-YYYYMMDD, then -2, -3 on the same day):
    gh workflow run build-fedora.yml
 
-   # Explicit tag:
-   gh workflow run build-fedora.yml --field version=fedora-45-v1
+   # A channel (fedora-45-next-YYYYMMDD):
+   gh workflow run build-fedora.yml --field channel=next
    ```
 
 2. **Wait for CI** — the workflow builds both `x86_64` and `aarch64` images and
@@ -349,9 +371,9 @@ the installed base image matches the expected tag and re-downloads if needed.
 
 ```bash
 isx update-base              # interactive — list releases, choose track-latest or pin
-isx update-base --latest     # always track the newest built-in version
+isx update-base --latest     # track the newest release of the built-in's line
 isx update-base --list       # list available releases without changing anything
-isx update-base fedora-45-v1 # pin to a specific release tag
+isx update-base fedora-45-20261111  # pin to a specific release tag
 ```
 
 **Track latest** (default): no user override is written — `isx` uses whatever

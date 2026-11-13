@@ -3,8 +3,8 @@ name: Build Fedora Base Image
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Release tag (e.g. fedora-45-v1)'
+      channel:
+        description: 'Channel, lower-case letters (e.g. next); empty for the stable line. The tag is generated: fedora-<release>[-<channel>]-YYYYMMDD. Not yet: see the README on channels'
         required: false
         default: ''
   schedule:
@@ -42,6 +42,13 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
+
+      # Refuse a bad channel before the builds, not after them in the release job.
+      - name: Check the channel
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          CHANNEL: ${{ github.event.inputs.channel }}
+        run: .github/scripts/release-tag.sh "$RELEASE" 00000000 "$CHANNEL" < /dev/null > /dev/null
 
       - name: Build container image
         run: |
@@ -118,18 +125,20 @@ jobs:
       # otherwise replace the assets whose checksums incus-spawn has pinned (#24).
       # Creating the tag here fails if it exists by now, so of two runs that picked
       # the same tag only one goes on to publish. It points where the release would
-      # have created it, at the default branch: the API lists releases by that
-      # commit's date, and isx takes the first one as the newest.
+      # have created it, at the default branch.
+      # The tag is generated, never typed (Sanne/incus-spawn#1994):
+      # fedora-<release>[-<channel>]-<YYYYMMDD>[-<n>]. isx orders tags within a line
+      # only and follows the stable line, the one without a channel, by itself.
       - name: Determine version tag
         id: version
         env:
           GH_TOKEN: ${{ github.token }}
-          REQUESTED: ${{ github.event.inputs.version }}
+          CHANNEL: ${{ github.event.inputs.channel }}
         run: |
           set -euo pipefail
           tag="$(gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/" \
               --jq '.[].ref | sub("^refs/tags/"; "")' \
-            | src/.github/scripts/release-tag.sh "$RELEASE" "$(date -u +%Y%m%d)" "$REQUESTED")"
+            | src/.github/scripts/release-tag.sh "$RELEASE" "$(date -u +%Y%m%d)" "$CHANNEL")"
           sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/HEAD" --jq .sha)"
           gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$tag" -f sha="$sha" > /dev/null
           echo "Releasing as $tag, at $sha"
@@ -141,6 +150,8 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           # Belt and braces: the tag is this run's own, so there is nothing to overwrite.
           overwrite_files: false
+          # A channel's release never takes the repository's "Latest" from the stable line.
+          make_latest: ${{ (github.event.inputs.channel || '') == '' }}
           name: Fedora ${{ env.RELEASE }} Base Image (${{ steps.version.outputs.tag }})
           body: |
             Fedora ${{ env.RELEASE }} base image for incus-spawn.
@@ -152,7 +163,7 @@ jobs:
 
             **Checksums:** `SHA256SUMS.v2` lists all four assets. There is no `SHA256SUMS`: isx releases that read only that file stay on their built-in Fedora 44 release.
 
-            **Usage:** isx tracks the newest release by itself; the automated bump in `incus-spawn` updates the built-in fallback in `minimal.yaml`.
+            **Usage:** ${{ (github.event.inputs.channel || '') == '' && 'isx tracks the newest release of this stable line by itself; the automated bump in `incus-spawn` updates the built-in fallback in `minimal.yaml`.' || format('a release of the `{0}` channel, which isx never tracks and the automated bump never proposes: pin it by hand with `isx update-base {1}`.', github.event.inputs.channel, steps.version.outputs.tag) }}
           files: |
             release/fedora-${{ env.RELEASE }}-x86_64.tar.xz
             release/fedora-${{ env.RELEASE }}-aarch64.tar.xz
@@ -167,6 +178,8 @@ jobs:
       # cannot dispatch cross-repo). Missing token → the notification is skipped, not
       # a release failure.
       - name: Notify incus-spawn of new base image
+        # Only the stable line is followed by itself; a channel is pinned by hand.
+        if: (github.event.inputs.channel || '') == ''
         env:
           DISPATCH_TOKEN: ${{ secrets.INCUS_SPAWN_DISPATCH_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
