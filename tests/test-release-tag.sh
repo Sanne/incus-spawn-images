@@ -9,10 +9,10 @@ failures=0
 
 fail() { echo "FAIL: $*" >&2; failures=$((failures + 1)); }
 
-# run <existing tags, one per line> [requested tag]: the tag for a release on 2026-10-12
+# run <existing tags, one per line> [channel]: the tag for a release on 2026-10-12
 run() { printf '%s' "$1" | bash "$SCRIPT" 44 20261012 ${2:+"$2"} 2>&1; }
 
-# expect <name> <existing tags> <expected tag> [requested tag]
+# expect <name> <existing tags> <expected tag> [channel]
 expect() {
     local got
     if ! got="$(run "$2" ${4:+"$4"})"; then
@@ -22,12 +22,12 @@ expect() {
     [ "$got" = "$3" ] || fail "$1: got '$got', want '$3'"
 }
 
-# refuse <name> <existing tags> <requested tag>
+# refuse <name> <existing tags> <channel> <message part>
 refuse() {
     local got
     if got="$(run "$2" "$3")"; then
-        fail "$1: published under '$got', an existing tag"
-    elif [[ "$got" != *"already exists"* ]]; then
+        fail "$1: published under '$got'"
+    elif [[ "$got" != *"$4"* ]]; then
         fail "$1: failed for another reason: $got"
     fi
 }
@@ -44,14 +44,24 @@ expect "third of the day" "fedora-44-20261012
 fedora-44-20261012-2
 " fedora-44-20261012-3
 expect "last tag without a newline" "fedora-44-20261012" fedora-44-20261012-2
-expect "requested, new" "fedora-44-20261012
-" fedora-44-v7 fedora-44-v7
-refuse "requested, existing" "fedora-44-v7
-" fedora-44-v7
-refuse "requested, today's" "fedora-44-20261012
+# Sanne/incus-spawn#1994: a channel is part of the line, before the date, and is
+# numbered within its own line only.
+expect "channel" "fedora-44-20261012
+" fedora-44-next-20261012 next
+expect "channel, second of the day" "fedora-44-20261012
+fedora-44-next-20261012
+" fedora-44-next-20261012-2 next
+expect "stable beside a channel" "fedora-44-next-20261012
 " fedora-44-20261012
-refuse "requested, last without a newline" "fedora-44-20261011
-fedora-44-v7" fedora-44-v7
+refuse "channel with a digit" "" next2 "lower-case letters only"
+refuse "channel with a dash" "" a-b "lower-case letters only"
+refuse "channel in capitals" "" Next "lower-case letters only"
+for args in "44 2026101" "4x 20261012" "" ; do
+    # shellcheck disable=SC2086
+    if bash "$SCRIPT" $args < /dev/null > /dev/null 2>&1; then
+        fail "usage '$args': accepted"
+    fi
+done
 
 if [ "$failures" -gt 0 ]; then
     echo "$failures failure(s)" >&2
