@@ -24,7 +24,7 @@ set -euo pipefail
 # (upstream/manifest.yaml, item isx-ref): the newest commit on main that changed
 # the kernel's script, its fragments or the boot test.
 ISX_REPO=https://github.com/Sanne/incus-spawn.git
-ISX_REF=fc188d6208270b11074fe0a509af90cd084aef40
+ISX_REF=9dbbb4bdb7a0ef3022c5c311d1b7db09054cadb2
 
 OUTPUT="${1:?Usage: $0 <output-dir> [arch]}"
 ARCH="${2:-$(uname -m)}"
